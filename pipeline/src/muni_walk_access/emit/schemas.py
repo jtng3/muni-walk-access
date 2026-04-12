@@ -1,0 +1,147 @@
+"""Data contract Pydantic schemas for the muni-walk-access pipeline."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, field_validator
+
+
+def _validate_pct_matrix(v: list[list[float]]) -> list[list[float]]:
+    """Assert every cell in a pct_within matrix is in [0.0, 1.0]."""
+    for row in v:
+        for val in row:
+            if not (0.0 <= val <= 1.0):
+                raise ValueError(f"pct_within values must be in [0.0, 1.0], got {val}")
+    return v
+
+
+class GridAxes(BaseModel):
+    """Frequency and walking axes that index the accessibility grid."""
+
+    frequency_minutes: list[int]
+    walking_minutes: list[int]
+
+    @field_validator("frequency_minutes", "walking_minutes", mode="after")
+    @classmethod
+    def must_be_sorted_ascending(cls, v: list[int]) -> list[int]:
+        """Raise if axis values are not sorted in ascending order."""
+        if v != sorted(v):
+            raise ValueError("axis values must be sorted ascending")
+        return v
+
+
+class GridDefaults(BaseModel):
+    """Default axis indices used when no user selection is active."""
+
+    frequency_idx: int
+    walking_idx: int
+
+
+class LensFlags(BaseModel):
+    """Boolean equity-lens membership flags for a neighbourhood."""
+
+    analysis_neighborhoods: bool
+    ej_communities: bool
+    equity_strategy: bool
+
+
+class CityWide(BaseModel):
+    """City-wide aggregate pct_within accessibility matrix."""
+
+    pct_within: list[list[float]]
+
+    @field_validator("pct_within", mode="after")
+    @classmethod
+    def pct_within_in_range(cls, v: list[list[float]]) -> list[list[float]]:
+        """Raise if any pct_within value is outside [0.0, 1.0]."""
+        return _validate_pct_matrix(v)
+
+
+class NeighborhoodGrid(BaseModel):
+    """Per-neighbourhood accessibility data and metadata."""
+
+    id: str
+    name: str
+    population: int
+    lens_flags: LensFlags
+    pct_within: list[list[float]]
+
+    @field_validator("pct_within", mode="after")
+    @classmethod
+    def pct_within_in_range(cls, v: list[list[float]]) -> list[list[float]]:
+        """Raise if any pct_within value is outside [0.0, 1.0]."""
+        return _validate_pct_matrix(v)
+
+
+class GridSchema(BaseModel):
+    """Root schema for the grid.json data contract file."""
+
+    version: str
+    run_id: str
+    config_snapshot_url: str
+    axes: GridAxes
+    defaults: GridDefaults
+    city_wide: CityWide
+    neighborhoods: list[NeighborhoodGrid]
+
+
+class CodeVersion(BaseModel):
+    """Git coordinates of the pipeline build that produced an artifact."""
+
+    git_sha: str
+    git_tag: str
+
+
+class DataVersions(BaseModel):
+    """Upstream data source versions used in a pipeline run."""
+
+    gtfs_feed_sha256: str
+    osm_extract_date: str
+    datasf_timestamps: dict[str, str]
+
+
+class ConfigSnapshot(BaseModel):
+    """Full pipeline configuration snapshot for run reproducibility."""
+
+    run_id: str
+    code_version: CodeVersion
+    config_hash: str
+    data_versions: DataVersions
+    config_values: dict[str, Any]
+    upstream_fallback: bool
+
+
+class GroundTruth(BaseModel):
+    """Ground-truth validation metrics from manual spot-checks."""
+
+    sample_size: int
+    within_10pct: float
+    within_20pct: float
+    median_error_pct: float
+    worst_case_pct: float
+
+
+class ComparisonTool(BaseModel):
+    """Optional comparison result against an external routing tool."""
+
+    name: str
+    pct_agreement: float
+
+
+class ValidationResults(BaseModel):
+    """Pipeline validation results against ground-truth data."""
+
+    run_id: str
+    ground_truth: GroundTruth
+    comparison_tool: ComparisonTool | None = None
+
+
+class NeighborhoodFeatureProperties(BaseModel):
+    """Properties on each feature in the neighborhoods.geojson file."""
+
+    id: str
+    name: str
+    population: int
+    lens_flags: LensFlags
+    pct_at_defaults: float
