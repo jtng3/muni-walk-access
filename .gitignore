@@ -1,0 +1,39 @@
+# === BMAD Framework (planning tooling, not shipped) ===
+_bmad/
+_bmad-output/
+
+# === Claude Code ===
+.claude/
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Python (pipeline/) ===
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+*.egg-info/
+dist/
+build/
+.cache/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# === Node (site/) ===
+node_modules/
+.astro/
+dist/
+.env.local
+.env.*.local
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
