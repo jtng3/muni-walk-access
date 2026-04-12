@@ -10,26 +10,35 @@ _bmad-output/
 Thumbs.db
 
 # === Python (pipeline/) ===
-__pycache__/
+pipeline/.venv/
+pipeline/.cache/
+pipeline/.env
+pipeline/__pycache__/
+pipeline/**/__pycache__/
+pipeline/*.egg-info/
+pipeline/src/*.egg-info/
+pipeline/.mypy_cache/
 *.py[cod]
 *.so
-.venv/
-*.egg-info/
-dist/
-build/
-.cache/
+
+# === Node (site/) ===
+site/node_modules/
+site/dist/
+site/.astro/
+site/.env.local
+site/.env.*.local
+
+# === Fallback globals (catch-all for future dirs) ===
 .env
 .env.*
 !.env.example
+dist/
+build/
+
+# === Secrets (anywhere) ===
 *.pem
 *.key
-
-# === Node (site/) ===
-node_modules/
-.astro/
-dist/
-.env.local
-.env.*.local
+credentials.json
 
 # === IDE ===
 .idea/
