@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from muni_walk_access.emit.schemas import (
     ConfigSnapshot,
     GridSchema,
+    NeighborhoodFeatureProperties,
     ValidationResults,
 )
 
@@ -177,3 +178,120 @@ class TestConfigSnapshotSchema:
         data = {k: v for k, v in self.VALID.items() if k != "upstream_fallback"}
         with pytest.raises(ValidationError):
             ConfigSnapshot.model_validate(data)
+
+
+class TestGridStructureValidation:
+    """Verify cross-field validators on GridSchema (D1, D2)."""
+
+    def test_mismatched_city_wide_dimensions(self) -> None:
+        """Verify pct_within rows != frequency axis length is rejected."""
+        raw = (FIXTURES / "sample_grid.json").read_text()
+        data = json.loads(raw)
+        data["city_wide"]["pct_within"] = data["city_wide"]["pct_within"][:3]
+        with pytest.raises(ValidationError, match="city_wide"):
+            GridSchema.model_validate(data)
+
+    def test_mismatched_neighborhood_columns(self) -> None:
+        """Verify pct_within column count != walking axis length is rejected."""
+        raw = (FIXTURES / "sample_grid.json").read_text()
+        data = json.loads(raw)
+        data["neighborhoods"][0]["pct_within"][0] = [0.5, 0.6]
+        with pytest.raises(ValidationError, match="neighborhood"):
+            GridSchema.model_validate(data)
+
+    def test_default_frequency_idx_out_of_bounds(self) -> None:
+        """Verify frequency_idx >= len(frequency_minutes) is rejected."""
+        raw = (FIXTURES / "sample_grid.json").read_text()
+        data = json.loads(raw)
+        data["defaults"]["frequency_idx"] = 99
+        with pytest.raises(ValidationError, match="frequency_idx"):
+            GridSchema.model_validate(data)
+
+    def test_default_walking_idx_negative(self) -> None:
+        """Verify negative walking_idx is rejected."""
+        raw = (FIXTURES / "sample_grid.json").read_text()
+        data = json.loads(raw)
+        data["defaults"]["walking_idx"] = -1
+        with pytest.raises(ValidationError, match="walking_idx"):
+            GridSchema.model_validate(data)
+
+
+class TestPercentageRangeValidation:
+    """Verify [0.0, 1.0] range enforcement on percentage fields (D3)."""
+
+    def test_ground_truth_pct_above_one(self) -> None:
+        """Verify GroundTruth rejects within_10pct > 1.0."""
+        with pytest.raises(ValidationError, match="percentage"):
+            ValidationResults.model_validate(
+                {
+                    "run_id": "test",
+                    "ground_truth": {
+                        "sample_size": 100,
+                        "within_10pct": 1.5,
+                        "within_20pct": 0.9,
+                        "median_error_pct": 0.05,
+                        "worst_case_pct": 0.3,
+                    },
+                }
+            )
+
+    def test_ground_truth_pct_below_zero(self) -> None:
+        """Verify GroundTruth rejects negative percentage."""
+        with pytest.raises(ValidationError, match="percentage"):
+            ValidationResults.model_validate(
+                {
+                    "run_id": "test",
+                    "ground_truth": {
+                        "sample_size": 100,
+                        "within_10pct": 0.8,
+                        "within_20pct": 0.9,
+                        "median_error_pct": -0.1,
+                        "worst_case_pct": 0.3,
+                    },
+                }
+            )
+
+    def test_comparison_tool_pct_above_one(self) -> None:
+        """Verify ComparisonTool rejects pct_agreement > 1.0."""
+        with pytest.raises(ValidationError, match="pct_agreement"):
+            ValidationResults.model_validate(
+                {
+                    "run_id": "test",
+                    "ground_truth": {
+                        "sample_size": 100,
+                        "within_10pct": 0.8,
+                        "within_20pct": 0.9,
+                        "median_error_pct": 0.05,
+                        "worst_case_pct": 0.3,
+                    },
+                    "comparison_tool": {"name": "test", "pct_agreement": 2.0},
+                }
+            )
+
+
+class TestNeighborhoodFeaturePropertiesSchema:
+    """Validate NeighborhoodFeatureProperties schema (P3)."""
+
+    VALID: dict[str, object] = {
+        "id": "outer-mission",
+        "name": "Outer Mission",
+        "population": 21430,
+        "lens_flags": {
+            "analysis_neighborhoods": True,
+            "ej_communities": False,
+            "equity_strategy": True,
+        },
+        "pct_at_defaults": 0.58,
+    }
+
+    def test_valid_feature_properties(self) -> None:
+        """Verify NeighborhoodFeatureProperties parses valid data."""
+        props = NeighborhoodFeatureProperties.model_validate(self.VALID)
+        assert props.id == "outer-mission"
+        assert props.pct_at_defaults == 0.58
+
+    def test_pct_at_defaults_above_one_rejected(self) -> None:
+        """Verify pct_at_defaults > 1.0 raises ValidationError."""
+        data = {**self.VALID, "pct_at_defaults": 1.5}
+        with pytest.raises(ValidationError, match="pct_at_defaults"):
+            NeighborhoodFeatureProperties.model_validate(data)

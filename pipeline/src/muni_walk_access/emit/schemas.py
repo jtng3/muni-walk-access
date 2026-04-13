@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 def _validate_pct_matrix(v: list[list[float]]) -> list[list[float]]:
@@ -85,6 +83,38 @@ class GridSchema(BaseModel):
     city_wide: CityWide
     neighborhoods: list[NeighborhoodGrid]
 
+    @model_validator(mode="after")
+    def validate_grid_structure(self) -> GridSchema:
+        """Validate matrix dimensions match axes and defaults are in bounds."""
+        n_freq = len(self.axes.frequency_minutes)
+        n_walk = len(self.axes.walking_minutes)
+        if not (0 <= self.defaults.frequency_idx < n_freq):
+            raise ValueError(
+                f"defaults.frequency_idx {self.defaults.frequency_idx}"
+                f" out of bounds for {n_freq} frequency values"
+            )
+        if not (0 <= self.defaults.walking_idx < n_walk):
+            raise ValueError(
+                f"defaults.walking_idx {self.defaults.walking_idx}"
+                f" out of bounds for {n_walk} walking values"
+            )
+        matrices = [
+            ("city_wide", self.city_wide.pct_within),
+            *((f"neighborhood '{nb.id}'", nb.pct_within) for nb in self.neighborhoods),
+        ]
+        for label, matrix in matrices:
+            if len(matrix) != n_freq:
+                raise ValueError(
+                    f"{label} pct_within has {len(matrix)} rows, expected {n_freq}"
+                )
+            for i, row in enumerate(matrix):
+                if len(row) != n_walk:
+                    raise ValueError(
+                        f"{label} pct_within[{i}] has"
+                        f" {len(row)} cols, expected {n_walk}"
+                    )
+        return self
+
 
 class CodeVersion(BaseModel):
     """Git coordinates of the pipeline build that produced an artifact."""
@@ -108,7 +138,7 @@ class ConfigSnapshot(BaseModel):
     code_version: CodeVersion
     config_hash: str
     data_versions: DataVersions
-    config_values: dict[str, Any]
+    config_values: dict[str, object]
     upstream_fallback: bool
 
 
@@ -121,12 +151,34 @@ class GroundTruth(BaseModel):
     median_error_pct: float
     worst_case_pct: float
 
+    @field_validator(
+        "within_10pct",
+        "within_20pct",
+        "median_error_pct",
+        "worst_case_pct",
+        mode="after",
+    )
+    @classmethod
+    def pct_in_unit_range(cls, v: float) -> float:
+        """Raise if percentage value is outside [0.0, 1.0]."""
+        if not (0.0 <= v <= 1.0):
+            raise ValueError(f"percentage must be in [0.0, 1.0], got {v}")
+        return v
+
 
 class ComparisonTool(BaseModel):
     """Optional comparison result against an external routing tool."""
 
     name: str
     pct_agreement: float
+
+    @field_validator("pct_agreement", mode="after")
+    @classmethod
+    def pct_in_unit_range(cls, v: float) -> float:
+        """Raise if pct_agreement is outside [0.0, 1.0]."""
+        if not (0.0 <= v <= 1.0):
+            raise ValueError(f"pct_agreement must be in [0.0, 1.0], got {v}")
+        return v
 
 
 class ValidationResults(BaseModel):
@@ -145,3 +197,11 @@ class NeighborhoodFeatureProperties(BaseModel):
     population: int
     lens_flags: LensFlags
     pct_at_defaults: float
+
+    @field_validator("pct_at_defaults", mode="after")
+    @classmethod
+    def pct_in_unit_range(cls, v: float) -> float:
+        """Raise if pct_at_defaults is outside [0.0, 1.0]."""
+        if not (0.0 <= v <= 1.0):
+            raise ValueError(f"pct_at_defaults must be in [0.0, 1.0], got {v}")
+        return v

@@ -78,7 +78,7 @@ export interface ComparisonTool {
 export interface ValidationResults {
   readonly run_id: string;
   readonly ground_truth: GroundTruth;
-  readonly comparison_tool?: ComparisonTool;
+  readonly comparison_tool: ComparisonTool | null;
 }
 
 export interface NeighborhoodFeatureProperties {
