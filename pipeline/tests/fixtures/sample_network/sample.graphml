@@ -1,0 +1,248 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+  <key id="d9" for="edge" attr.name="name" attr.type="string" />
+  <key id="d8" for="edge" attr.name="highway" attr.type="string" />
+  <key id="d7" for="edge" attr.name="length" attr.type="string" />
+  <key id="d6" for="edge" attr.name="osmid" attr.type="string" />
+  <key id="d5" for="node" attr.name="y" attr.type="string" />
+  <key id="d4" for="node" attr.name="x" attr.type="string" />
+  <key id="d3" for="node" attr.name="osmid" attr.type="string" />
+  <key id="d2" for="graph" attr.name="created_date" attr.type="string" />
+  <key id="d1" for="graph" attr.name="created_with" attr.type="string" />
+  <key id="d0" for="graph" attr.name="crs" attr.type="string" />
+  <graph edgedefault="directed">
+    <node id="1">
+      <data key="d3">1</data>
+      <data key="d4">-122.407</data>
+      <data key="d5">37.782</data>
+    </node>
+    <node id="2">
+      <data key="d3">2</data>
+      <data key="d4">-122.40599999999999</data>
+      <data key="d5">37.782</data>
+    </node>
+    <node id="3">
+      <data key="d3">3</data>
+      <data key="d4">-122.405</data>
+      <data key="d5">37.782</data>
+    </node>
+    <node id="4">
+      <data key="d3">4</data>
+      <data key="d4">-122.407</data>
+      <data key="d5">37.782999999999994</data>
+    </node>
+    <node id="5">
+      <data key="d3">5</data>
+      <data key="d4">-122.40599999999999</data>
+      <data key="d5">37.782999999999994</data>
+    </node>
+    <node id="6">
+      <data key="d3">6</data>
+      <data key="d4">-122.405</data>
+      <data key="d5">37.782999999999994</data>
+    </node>
+    <node id="7">
+      <data key="d3">7</data>
+      <data key="d4">-122.407</data>
+      <data key="d5">37.784</data>
+    </node>
+    <node id="8">
+      <data key="d3">8</data>
+      <data key="d4">-122.40599999999999</data>
+      <data key="d5">37.784</data>
+    </node>
+    <node id="9">
+      <data key="d3">9</data>
+      <data key="d4">-122.405</data>
+      <data key="d5">37.784</data>
+    </node>
+    <node id="10">
+      <data key="d3">10</data>
+      <data key="d4">-122.40599999999999</data>
+      <data key="d5">37.7835</data>
+    </node>
+    <edge source="1" target="2" id="0">
+      <data key="d6">100</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="1" target="4" id="0">
+      <data key="d6">106</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="2" target="1" id="0">
+      <data key="d6">100</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="2" target="3" id="0">
+      <data key="d6">101</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="2" target="5" id="0">
+      <data key="d6">108</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="3" target="2" id="0">
+      <data key="d6">101</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="3" target="6" id="0">
+      <data key="d6">110</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="4" target="5" id="0">
+      <data key="d6">102</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="4" target="1" id="0">
+      <data key="d6">106</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="4" target="7" id="0">
+      <data key="d6">107</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="5" target="4" id="0">
+      <data key="d6">102</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="5" target="6" id="0">
+      <data key="d6">103</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="5" target="2" id="0">
+      <data key="d6">108</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="5" target="8" id="0">
+      <data key="d6">109</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="5" target="10" id="0">
+      <data key="d6">112</data>
+      <data key="d7">55.5</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="6" target="5" id="0">
+      <data key="d6">103</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="6" target="3" id="0">
+      <data key="d6">110</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="6" target="9" id="0">
+      <data key="d6">111</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="6" target="10" id="0">
+      <data key="d6">114</data>
+      <data key="d7">105.7</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="7" target="8" id="0">
+      <data key="d6">104</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="7" target="4" id="0">
+      <data key="d6">107</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="8" target="7" id="0">
+      <data key="d6">104</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="8" target="9" id="0">
+      <data key="d6">105</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="8" target="5" id="0">
+      <data key="d6">109</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="8" target="10" id="0">
+      <data key="d6">113</data>
+      <data key="d7">55.5</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="9" target="8" id="0">
+      <data key="d6">105</data>
+      <data key="d7">90.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="9" target="6" id="0">
+      <data key="d6">111</data>
+      <data key="d7">111.0</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="10" target="5" id="0">
+      <data key="d6">112</data>
+      <data key="d7">55.5</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="10" target="8" id="0">
+      <data key="d6">113</data>
+      <data key="d7">55.5</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <edge source="10" target="6" id="0">
+      <data key="d6">114</data>
+      <data key="d7">105.7</data>
+      <data key="d8">footway</data>
+      <data key="d9">Test St</data>
+    </edge>
+    <data key="d0">EPSG:4326</data>
+    <data key="d1">osmnx</data>
+    <data key="d2">2026-04-13</data>
+  </graph>
+</graphml>

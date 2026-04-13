@@ -10,7 +10,7 @@ import yaml
 from pydantic import ValidationError
 
 from muni_walk_access.config import load_config
-from muni_walk_access.exceptions import IngestError
+from muni_walk_access.exceptions import IngestError, NetworkBuildError
 
 
 def main() -> None:
@@ -53,6 +53,9 @@ def main() -> None:
         print(f"Config YAML syntax error:\n{exc}", file=sys.stderr)
         sys.exit(1)
     except IngestError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+    except NetworkBuildError as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
 

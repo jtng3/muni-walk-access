@@ -31,10 +31,15 @@ class CacheManager:
         """Return the expected path for today's cache entry."""
         return self._dir(subdir) / f"{dataset_id}-{self._today_str()}.{ext}"
 
-    def _find_existing(self, subdir: str, dataset_id: str) -> list[Path]:
+    def _find_existing(
+        self,
+        subdir: str,
+        dataset_id: str,
+        extensions: tuple[str, ...] = ("parquet", "geojson", "zip"),
+    ) -> list[Path]:
         """Return all cached files for dataset_id sorted newest-first."""
         d = self._dir(subdir)
-        for ext in ("parquet", "geojson", "zip"):
+        for ext in extensions:
             matches = sorted(d.glob(f"{dataset_id}-*.{ext}"), reverse=True)
             if matches:
                 return matches
@@ -54,17 +59,27 @@ class CacheManager:
         delta = (date.today() - file_date).days
         return delta < self._ttl_days
 
-    def get(self, subdir: str, dataset_id: str) -> Path | None:
+    def get(
+        self,
+        subdir: str,
+        dataset_id: str,
+        extensions: tuple[str, ...] = ("parquet", "geojson", "zip"),
+    ) -> Path | None:
         """Return fresh cache path, or None if stale/missing."""
-        candidates = self._find_existing(subdir, dataset_id)
+        candidates = self._find_existing(subdir, dataset_id, extensions)
         if not candidates:
             return None
         newest = candidates[0]
         return newest if self._is_fresh(newest) else None
 
-    def get_any(self, subdir: str, dataset_id: str) -> Path | None:
+    def get_any(
+        self,
+        subdir: str,
+        dataset_id: str,
+        extensions: tuple[str, ...] = ("parquet", "geojson", "zip"),
+    ) -> Path | None:
         """Return ANY cached path (even stale) for fallback, or None if missing."""
-        candidates = self._find_existing(subdir, dataset_id)
+        candidates = self._find_existing(subdir, dataset_id, extensions)
         return candidates[0] if candidates else None
 
     def put(self, subdir: str, dataset_id: str, data: bytes, ext: str) -> Path:
@@ -72,3 +87,12 @@ class CacheManager:
         path = self._fresh_path(subdir, dataset_id, ext)
         path.write_bytes(data)
         return path
+
+    def put_path(self, subdir: str, dataset_id: str, ext: str) -> Path:
+        """Return the destination path for today's cache entry.
+
+        Used by external tools (osmnx, pandana) that write to a file path
+        directly rather than returning bytes.  The parent directory is created
+        automatically so callers can write immediately.
+        """
+        return self._fresh_path(subdir, dataset_id, ext)

@@ -117,6 +117,13 @@ class ValidationConfig(BaseModel):
         return v
 
 
+class NetworksConfig(BaseModel):
+    """Network building parameters."""
+
+    osm_place: str = "San Francisco, California, USA"
+    osm_network_type: str = "walk"
+
+
 class DevConfig(BaseModel):
     """Developer ergonomics configuration."""
 
@@ -135,6 +142,7 @@ class Config(BaseModel):
     validation: ValidationConfig
     dev: DevConfig
     ingest: IngestConfig = IngestConfig()
+    networks: NetworksConfig = NetworksConfig()
 
 
 def load_config(path: Path) -> Config:

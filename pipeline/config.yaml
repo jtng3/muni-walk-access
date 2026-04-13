@@ -36,3 +36,7 @@ dev:
 ingest:
   cache_ttl_days: 30
   cache_dir: ".cache"
+
+networks:
+  osm_place: "San Francisco, California, USA"
+  osm_network_type: "walk"

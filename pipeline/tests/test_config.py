@@ -111,6 +111,24 @@ class TestIngestConfig:
         assert config.ingest.cache_ttl_days == 30
 
 
+class TestNetworksConfig:
+    """Verify NetworksConfig defaults and config.yaml round-trip (Story 1.5 T1d)."""
+
+    def test_networks_defaults(self) -> None:
+        """Config without 'networks' key still validates using defaults."""
+        data = _raw()
+        data.pop("networks", None)
+        config = Config.model_validate(data)
+        assert config.networks.osm_place == "San Francisco, California, USA"
+        assert config.networks.osm_network_type == "walk"
+
+    def test_networks_from_config_yaml(self) -> None:
+        """config.yaml networks section parses correctly."""
+        config = load_config(CONFIG_PATH)
+        assert config.networks.osm_place == "San Francisco, California, USA"
+        assert config.networks.osm_network_type == "walk"
+
+
 class TestValidationThresholdRejection:
     """Verify pass_threshold [0.0, 1.0] enforcement (AC-1)."""
 
