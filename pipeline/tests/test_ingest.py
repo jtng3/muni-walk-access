@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import io
+import logging
 import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import polars as pl
@@ -16,7 +18,11 @@ import muni_walk_access.ingest.datasf as datasf_mod
 from muni_walk_access.config import Config, IngestConfig
 from muni_walk_access.exceptions import IngestError
 from muni_walk_access.ingest.cache import CacheManager
-from muni_walk_access.ingest.datasf import fetch_geospatial, fetch_tabular
+from muni_walk_access.ingest.datasf import (
+    fetch_geospatial,
+    fetch_residential_addresses,
+    fetch_tabular,
+)
 from muni_walk_access.ingest.gtfs import fetch_gtfs
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sample_gtfs_minimal"
@@ -207,6 +213,34 @@ class TestFetchTabular:
         assert "no-cache-dataset" in str(exc_info.value)
         assert "Warm the cache" in str(exc_info.value)
 
+    def test_csv_mixed_column_type_not_rejected(self, tmp_path: Path) -> None:
+        """Columns with letter-suffix values like '0026T' parse OK."""
+        cfg = _ingest_config(tmp_path)
+        csv = b"block,lot,use_code\n0001,001,SRES\n0026T,015,MRES\n"
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            if "$offset=0" in str(req.url) or "$offset" not in str(req.url):
+                return httpx.Response(200, content=csv)
+            return httpx.Response(200, content=b"block,lot,use_code\n")
+
+        df = fetch_tabular("mixed-schema-dataset", cfg, client=self._client(handler))
+        assert "block" in df.columns
+        assert "0026T" in df["block"].to_list()
+
+    def test_csv_na_values_treated_as_null(self, tmp_path: Path) -> None:
+        """'NA' in an otherwise numeric column becomes null, not a parse error."""
+        cfg = _ingest_config(tmp_path)
+        csv = b"id,value,code\n1,100,A\n2,NA,B\n3,300,C\n"
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            if "$offset=0" in str(req.url) or "$offset" not in str(req.url):
+                return httpx.Response(200, content=csv)
+            return httpx.Response(200, content=b"id,value,code\n")
+
+        df = fetch_tabular("na-test", cfg, client=self._client(handler))
+        assert len(df) == 3
+        assert df["value"].null_count() == 1
+
     def test_stale_cache_triggers_refetch(self, tmp_path: Path) -> None:
         """T9c: stale cache → fetch is attempted (fresh data overwrites)."""
         cfg = _ingest_config(tmp_path, ttl_days=1)
@@ -375,3 +409,166 @@ class TestFetchGtfs:
         client = httpx.Client(transport=httpx.MockTransport(handler))
         with pytest.raises(IngestError):
             fetch_gtfs(config, client=client)
+
+
+# ---------------------------------------------------------------------------
+# fetch_residential_addresses tests (Story 1.6: T4a-T4f)
+# ---------------------------------------------------------------------------
+
+
+class TestResidentialFilter:
+    """Tests for datasf.fetch_residential_addresses — Story 1.6."""
+
+    def setup_method(self) -> None:
+        """Reset module-level state before each test."""
+        _reset_fallback()
+
+    def _full_config(self, tmp_path: Path, parcel_id: str | None = None) -> Config:
+        """Build a valid Config with tmp cache dir and optional parcel_id override."""
+        from muni_walk_access.config import load_config
+
+        config_path = Path(__file__).parent.parent / "config.yaml"
+        cfg = load_config(config_path)
+        updates: dict[str, Any] = {
+            "ingest": IngestConfig(cache_dir=tmp_path, cache_ttl_days=30)
+        }
+        if parcel_id is not None:
+            updates["residential_filter"] = cfg.residential_filter.model_copy(
+                update={"parcel_dataset_id": parcel_id}
+            )
+        return cfg.model_copy(update=updates)
+
+    def _eas_df(self) -> pl.DataFrame:
+        """Minimal EAS DataFrame with parcel_number join key."""
+        return pl.DataFrame(
+            {
+                "parcel_number": ["0001/001", "0001/002", "0002/001", "0003/001"],
+                "address": ["100 MAIN ST", "200 MAIN ST", "300 OAK ST", "400 ELM ST"],
+                "latitude": [37.77, 37.78, 37.79, 37.80],
+                "longitude": [-122.40, -122.41, -122.42, -122.43],
+            }
+        )
+
+    def _parcel_df(self) -> pl.DataFrame:
+        """Multi-year parcel data — only 2024 rows should survive year filtering."""
+        return pl.DataFrame(
+            {
+                "parcel_number": ["0001/001", "0001/002", "0002/001", "0001/001"],
+                "use_code": ["SRES", "MRES", "COMM", "SRES"],
+                "closed_roll_year": [2024, 2024, 2024, 2023],
+            }
+        )
+
+    def _mock_fetch(
+        self,
+        eas_df: pl.DataFrame,
+        parcel_df: pl.DataFrame,
+        call_log: list[str] | None = None,
+    ) -> Any:
+        """Return a mock fetch_tabular that distinguishes datasets by ID."""
+
+        def _fetch(
+            dataset_id: str,
+            config: IngestConfig,
+            client: httpx.Client | None = None,
+        ) -> pl.DataFrame:
+            if call_log is not None:
+                call_log.append(dataset_id)
+            return eas_df if dataset_id == datasf_mod._EAS_DATASET_ID else parcel_df
+
+        return _fetch
+
+    def test_tbd_sentinel_uses_interim_dataset(self, tmp_path: Path) -> None:
+        """T4a: TBD sentinel → fetch_tabular called with _INTERIM_PARCEL_DATASET_ID."""
+        cfg = self._full_config(tmp_path)
+        call_log: list[str] = []
+
+        mock = self._mock_fetch(self._eas_df(), self._parcel_df(), call_log)
+        with patch.object(datasf_mod, "fetch_tabular", side_effect=mock):
+            fetch_residential_addresses(cfg)
+
+        assert datasf_mod._INTERIM_PARCEL_DATASET_ID in call_log
+        assert datasf_mod._TBD_SENTINEL not in call_log
+
+    def test_real_dataset_id_uses_configured_id(self, tmp_path: Path) -> None:
+        """T4b: real parcel_dataset_id → fetch_tabular called with that ID."""
+        real_id = "abcd-efgh"
+        cfg = self._full_config(tmp_path, parcel_id=real_id)
+        call_log: list[str] = []
+        parcel_df = pl.DataFrame({"parcel_number": ["0001/001"], "use_code": ["SRES"]})
+
+        with patch.object(
+            datasf_mod,
+            "fetch_tabular",
+            side_effect=self._mock_fetch(self._eas_df(), parcel_df, call_log),
+        ):
+            fetch_residential_addresses(cfg)
+
+        assert real_id in call_log
+        assert datasf_mod._INTERIM_PARCEL_DATASET_ID not in call_log
+
+    def test_warning_logged_for_tbd_sentinel(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """T4c: WARNING level log emitted when TBD sentinel is used."""
+        cfg = self._full_config(tmp_path)
+
+        with patch.object(
+            datasf_mod,
+            "fetch_tabular",
+            side_effect=self._mock_fetch(self._eas_df(), self._parcel_df()),
+        ):
+            logger_name = "muni_walk_access.ingest.datasf"
+            with caplog.at_level(logging.WARNING, logger=logger_name):
+                fetch_residential_addresses(cfg)
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(datasf_mod._TBD_SENTINEL in msg for msg in warnings)
+
+    def test_use_code_filtering(self, tmp_path: Path) -> None:
+        """T4d: only rows matching use_codes_residential are returned."""
+        cfg = self._full_config(tmp_path)
+
+        with patch.object(
+            datasf_mod,
+            "fetch_tabular",
+            side_effect=self._mock_fetch(self._eas_df(), self._parcel_df()),
+        ):
+            result = fetch_residential_addresses(cfg)
+
+        # SRES + MRES match config; COMM does not; 2023 dupe excluded by year filter
+        assert set(result["use_code"].to_list()).issubset({"SRES", "MRES"})
+        assert len(result) == 2  # 0001/001 (SRES 2024) + 0001/002 (MRES 2024)
+
+    def test_returned_df_has_expected_columns(self, tmp_path: Path) -> None:
+        """T4e: result has address, latitude, longitude, parcel_number, use_code."""
+        cfg = self._full_config(tmp_path)
+
+        with patch.object(
+            datasf_mod,
+            "fetch_tabular",
+            side_effect=self._mock_fetch(self._eas_df(), self._parcel_df()),
+        ):
+            result = fetch_residential_addresses(cfg)
+
+        for col in ("address", "latitude", "longitude", "parcel_number", "use_code"):
+            assert col in result.columns, f"Expected column missing: {col}"
+
+    def test_ingest_error_propagates(self, tmp_path: Path) -> None:
+        """T4f: IngestError from parcel fetch_tabular propagates (not swallowed)."""
+        cfg = self._full_config(tmp_path)
+
+        def failing_fetch(
+            dataset_id: str,
+            config: IngestConfig,
+            client: httpx.Client | None = None,
+        ) -> pl.DataFrame:
+            if dataset_id == datasf_mod._EAS_DATASET_ID:
+                return self._eas_df()
+            raise IngestError(
+                dataset_id, "HTTP error and no local cache: upstream down"
+            )
+
+        with patch.object(datasf_mod, "fetch_tabular", side_effect=failing_fetch):
+            with pytest.raises(IngestError):
+                fetch_residential_addresses(cfg)

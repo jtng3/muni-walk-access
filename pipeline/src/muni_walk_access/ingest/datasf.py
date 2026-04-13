@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 import polars as pl
 
-from muni_walk_access.config import IngestConfig
+from muni_walk_access.config import Config, IngestConfig
 from muni_walk_access.exceptions import IngestError
 from muni_walk_access.ingest.cache import CacheManager
 
@@ -20,6 +20,13 @@ SODA_BASE = "https://data.sfgov.org/resource"
 SODA_PAGE_SIZE = 50_000
 CACHE_SUBDIR_TABULAR = "datasf"
 CACHE_SUBDIR_GEO = "datasf"
+
+# Residential filter constants (Story 1.6)
+_EAS_DATASET_ID = "3mea-di5p"
+# Assessor Historical Secured Property Tax Rolls
+_INTERIM_PARCEL_DATASET_ID = "wv5m-vpq2"
+_TBD_SENTINEL = "TBD_FROM_LUKE"
+_SPIKE_MEMO_PATH = "pipeline/docs/residential-filter-spike.md"
 
 _upstream_fallback: bool = False
 _datasf_timestamps: dict[str, str] = {}
@@ -84,7 +91,13 @@ def fetch_tabular(
             text = resp.text
             if not text.strip():
                 break
-            page = pl.read_csv(io.StringIO(text))
+            # Read all columns as String to avoid cross-page schema conflicts
+            # (SODA pages independently contain mixed types like block "0026T").
+            page = pl.read_csv(
+                io.StringIO(text),
+                infer_schema_length=0,
+                null_values=["NA"],
+            )
             if page.is_empty():
                 break
             pages.append(page)
@@ -173,3 +186,72 @@ def fetch_geospatial(
     finally:
         if own_client:
             _client.close()
+
+
+def fetch_residential_addresses(
+    config: Config,
+    client: httpx.Client | None = None,
+) -> pl.DataFrame:
+    """Fetch EAS base addresses filtered to residential parcels only.
+
+    Joins EAS addresses (3mea-di5p) against a parcel dataset on ``parcel_number``
+    and filters to rows whose ``use_code`` matches
+    ``config.residential_filter.use_codes_residential``.
+
+    When ``parcel_dataset_id`` is the ``TBD_FROM_LUKE`` placeholder, falls back to
+    the interim Assessor Historical Tax Rolls dataset (wv5m-vpq2) and emits a
+    WARNING. Update ``config.yaml`` once Luke Armbruster confirms the real dataset.
+
+    Args:
+        config: Root pipeline configuration; needs ``.ingest`` and
+            ``.residential_filter``.
+        client: Optional httpx.Client injected for testability; created if None.
+
+    Returns:
+        DataFrame of EAS addresses annotated with ``use_code``, filtered to
+        residential rows. May be empty if the parcel join finds no overlap.
+
+    Raises:
+        IngestError: If either the EAS or parcel dataset cannot be fetched and
+            no local cache is available.
+
+    """
+    parcel_id = config.residential_filter.parcel_dataset_id
+    if parcel_id == _TBD_SENTINEL:
+        parcel_id = _INTERIM_PARCEL_DATASET_ID
+        logger.warning(
+            "residential_filter.parcel_dataset_id is placeholder '%s'; "
+            "using interim dataset %s. "
+            "Update config.yaml once Luke confirms the dataset. "
+            "See spike memo: %s",
+            _TBD_SENTINEL,
+            _INTERIM_PARCEL_DATASET_ID,
+            _SPIKE_MEMO_PATH,
+        )
+    else:
+        logger.info("Using configured parcel dataset: %s", parcel_id)
+
+    eas = fetch_tabular(_EAS_DATASET_ID, config.ingest, client=client)
+    parcels = fetch_tabular(parcel_id, config.ingest, client=client)
+
+    # Assessor historical data spans multiple years — keep only the most recent roll.
+    # String max works correctly for 4-digit year values ("2024" > "2023").
+    if "closed_roll_year" in parcels.columns:
+        max_year = parcels["closed_roll_year"].max()
+        parcels = parcels.filter(pl.col("closed_roll_year") == max_year)
+
+    joined = eas.join(
+        parcels.select(["parcel_number", "use_code"]),
+        on="parcel_number",
+        how="inner",
+    )
+    residential = joined.filter(
+        pl.col("use_code").is_in(config.residential_filter.use_codes_residential)
+    )
+    logger.info(
+        "Residential filter: %d/%d EAS addresses kept (%d had parcel match)",
+        len(residential),
+        len(eas),
+        len(joined),
+    )
+    return residential

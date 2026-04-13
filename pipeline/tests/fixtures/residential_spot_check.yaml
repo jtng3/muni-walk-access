@@ -1,0 +1,150 @@
+metadata:
+  dataset: 3mea-di5p (EAS) inner-joined with wv5m-vpq2 (Assessor Tax Rolls)
+  sample_seed: 42
+  sample_size: 20
+  total_pool: 179653
+  instructions: 'For each entry: open street_view_url and verify whether the address
+    is residential. Set finding to ''residential'' or ''non-residential''. Set verdict
+    to ''correct'' (filter correctly included it) or ''incorrect'' (filter included
+    it but it is not residential). Story 1.6 AC-3 requires >=19/20 (95%) correct.'
+entries:
+- address: 1458 CHURCH ST
+  lat: 37.74741415
+  lon: -122.42730261
+  use_code: MRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.74741415,-122.42730261
+  finding: residential
+  verdict: correct
+- address: 327 21ST AVE
+  lat: 37.78164462
+  lon: -122.48087852
+  use_code: MRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.78164462,-122.48087852
+  finding: residential
+  verdict: correct
+- address: 3342 SACRAMENTO ST
+  lat: 37.7883574
+  lon: -122.44779064
+  use_code: MRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.7883574,-122.44779064
+  finding: residential
+  verdict: correct
+- address: 505 DIAMOND ST
+  lat: 37.75411491
+  lon: -122.43625811
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.75411491,-122.43625811
+  finding: residential
+  verdict: correct
+- address: 1732 KEITH ST
+  lat: 37.73029765
+  lon: -122.38881198
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.73029765,-122.38881198
+  finding: residential
+  verdict: correct
+- address: 16 PROSPECT AVE
+  lat: 37.74526037
+  lon: -122.41767045
+  use_code: MRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.74526037,-122.41767045
+  finding: residential
+  verdict: correct
+- address: 1630 TURK ST
+  lat: 37.78018945
+  lon: -122.43580672
+  use_code: MRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.78018945,-122.43580672
+  finding: residential
+  verdict: correct
+- address: 3129 GOUGH ST
+  lat: 37.80224975
+  lon: -122.42846211
+  use_code: MRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.80224975,-122.42846211
+  finding: residential
+  verdict: correct
+- address: 335 CHESTER AVE
+  lat: 37.709782
+  lon: -122.47008929
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.709782,-122.47008929
+  finding: residential
+  verdict: correct
+- address: 220 SAGAMORE ST
+  lat: 37.71169059
+  lon: -122.45978414
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.71169059,-122.45978414
+  finding: residential
+  verdict: correct
+- address: 2225 DIVISADERO ST
+  lat: 37.79023839
+  lon: -122.44123458
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.79023839,-122.44123458
+  finding: residential
+  verdict: correct
+- address: 2970 21ST AVE
+  lat: 37.73316713
+  lon: -122.47671408
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.73316713,-122.47671408
+  finding: residential
+  verdict: correct
+- address: 10 PARKRIDGE DR
+  lat: 37.75091089
+  lon: -122.44560568
+  use_code: MRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.75091089,-122.44560568
+  finding: residential
+  verdict: correct
+- address: 2270 30TH AVE
+  lat: 37.74496836
+  lon: -122.48731715
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.74496836,-122.48731715
+  finding: residential
+  verdict: correct
+- address: 467 23RD AVE
+  lat: 37.77887307
+  lon: -122.48282723
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.77887307,-122.48282723
+  finding: residential
+  verdict: correct
+- address: 54 CURTIS ST
+  lat: 37.71400526
+  lon: -122.44015464
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.71400526,-122.44015464
+  finding: residential
+  verdict: correct
+- address: 111 HEARST AVE
+  lat: 37.73048023
+  lon: -122.44025656
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.73048023,-122.44025656
+  finding: residential
+  verdict: correct
+- address: 59 DIGBY ST
+  lat: 37.73964264
+  lon: -122.43271049
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.73964264,-122.43271049
+  finding: residential
+  verdict: correct
+- address: 2350 SANTIAGO ST
+  lat: 37.74431702
+  lon: -122.49273603
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.74431702,-122.49273603
+  finding: residential
+  verdict: correct
+- address: 2218 48TH AVE
+  lat: 37.74500873
+  lon: -122.50666862
+  use_code: SRES
+  street_view_url: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=37.74500873,-122.50666862
+  finding: residential
+  verdict: correct

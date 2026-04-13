@@ -19,7 +19,7 @@ walking:
 
 residential_filter:
   parcel_dataset_id: "TBD_FROM_LUKE"
-  use_codes_residential: ["SFR", "MFR", "CONDO", "RESIDENTIAL"]
+  use_codes_residential: ["SRES", "MRES"]  # Actual wv5m-vpq2 codes; update when Luke confirms dataset
 
 lenses:
   - { id: analysis_neighborhoods, datasf_id: p5b7-5n3h, label: "Analysis Neighborhoods" }
