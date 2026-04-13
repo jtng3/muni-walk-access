@@ -63,6 +63,13 @@ class GridConfig(BaseModel):
         return self
 
 
+class IngestConfig(BaseModel):
+    """Data ingestion caching parameters."""
+
+    cache_ttl_days: int = Field(default=30, gt=0)
+    cache_dir: Path = Path(".cache")
+
+
 class WalkingConfig(BaseModel):
     """Walking speed parameters."""
 
@@ -127,6 +134,7 @@ class Config(BaseModel):
     lenses: list[LensConfig]
     validation: ValidationConfig
     dev: DevConfig
+    ingest: IngestConfig = IngestConfig()
 
 
 def load_config(path: Path) -> Config:

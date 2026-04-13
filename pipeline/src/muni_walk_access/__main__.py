@@ -10,6 +10,7 @@ import yaml
 from pydantic import ValidationError
 
 from muni_walk_access.config import load_config
+from muni_walk_access.exceptions import IngestError
 
 
 def main() -> None:
@@ -51,6 +52,9 @@ def main() -> None:
     except yaml.YAMLError as exc:
         print(f"Config YAML syntax error:\n{exc}", file=sys.stderr)
         sys.exit(1)
+    except IngestError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
 
     if args.sample is not None:
         config = config.model_copy(
@@ -59,4 +63,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

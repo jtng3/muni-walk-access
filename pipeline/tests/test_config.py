@@ -91,6 +91,26 @@ class TestGridAxisValidation:
             Config.model_validate(data)
 
 
+class TestIngestConfig:
+    """Verify IngestConfig defaults and config.yaml round-trip (Story 1.4 T1d)."""
+
+    def test_ingest_cache_ttl_default(self) -> None:
+        """Verify config.ingest.cache_ttl_days == 30 from config.yaml."""
+        from pathlib import Path
+
+        from muni_walk_access.config import load_config
+
+        config = load_config(Path(__file__).parent.parent / "config.yaml")
+        assert config.ingest.cache_ttl_days == 30
+
+    def test_ingest_defaults_when_key_absent(self) -> None:
+        """Config without 'ingest' key still validates using defaults."""
+        data = _raw()
+        data.pop("ingest", None)
+        config = Config.model_validate(data)
+        assert config.ingest.cache_ttl_days == 30
+
+
 class TestValidationThresholdRejection:
     """Verify pass_threshold [0.0, 1.0] enforcement (AC-1)."""
 
