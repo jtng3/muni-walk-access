@@ -1,0 +1,34 @@
+version: "1.0"
+
+frequency:
+  bins:
+    - { id: high,   max_headway_min: 10 }
+    - { id: medium, max_headway_min: 20 }
+    - { id: low,    max_headway_min: null }
+  peak_window: am_peak
+  peak_am_start: "07:00"
+  peak_am_end: "09:00"
+
+grid:
+  frequency_threshold_min: [4, 6, 8, 10, 12, 15, 20]
+  walking_minutes: [3, 5, 7, 10, 12, 15]
+  defaults: { frequency_min: 10, walking_min: 5 }
+
+walking:
+  pace_min_per_mile: 20.0
+
+residential_filter:
+  parcel_dataset_id: "TBD_FROM_LUKE"
+  use_codes_residential: ["SFR", "MFR", "CONDO", "RESIDENTIAL"]
+
+lenses:
+  - { id: analysis_neighborhoods, datasf_id: p5b7-5n3h, label: "Analysis Neighborhoods" }
+  - { id: ej_communities,         datasf_id: v25p-yprq, label: "Environmental Justice Communities" }
+  - { id: equity_strategy,        datasf_id: twv9-dib2, label: "SFMTA Equity Strategy Neighborhoods" }
+
+validation:
+  ground_truth_file: "tests/fixtures/ground_truth_addresses.yaml"
+  pass_threshold: 0.90
+
+dev:
+  sample_size: null

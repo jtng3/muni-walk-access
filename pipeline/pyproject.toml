@@ -43,3 +43,7 @@ ignore = ["D100", "D104"]
 
 [tool.mypy]
 strict = true
+
+[[tool.mypy.overrides]]
+module = "yaml"
+ignore_missing_imports = true
