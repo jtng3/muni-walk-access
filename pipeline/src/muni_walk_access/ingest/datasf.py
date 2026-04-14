@@ -22,7 +22,7 @@ CACHE_SUBDIR_TABULAR = "datasf"
 CACHE_SUBDIR_GEO = "datasf"
 
 # Residential filter constants (Story 1.6)
-_EAS_DATASET_ID = "3mea-di5p"
+_EAS_DATASET_ID = "ramy-di5m"  # EAS with Units (per Luke's data sources)
 # Assessor Historical Secured Property Tax Rolls
 _INTERIM_PARCEL_DATASET_ID = "wv5m-vpq2"
 _TBD_SENTINEL = "TBD_FROM_LUKE"

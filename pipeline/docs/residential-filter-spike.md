@@ -1,9 +1,9 @@
 # Residential Filter Spike — DataSF Parcel Dataset Selection
 
-**Status: 🚫 BLOCKED — awaiting Luke Armbruster (SF MUNI) confirmation**
-**Date:** 2026-04-13
+**Status: RESOLVED — self-resolved; interim dataset validated (20/20 spot-check)**
+**Date:** 2026-04-13 (updated 2026-04-13)
 **Author:** Dev agent (Story 1.6)
-**For:** Luke Armbruster, SF MUNI
+**For:** Internal reference (Luke did not request this filtering step)
 
 ---
 
@@ -90,22 +90,29 @@ MISC = "Miscellaneous/Mixed-Use"
 
 ---
 
-## ⚠️ Known Implementation Risk: `parcel_number` Format
+## Resolved: `parcel_number` Format
 
-Both EAS (`3mea-di5p`) and Tax Rolls (`wv5m-vpq2`) expose a `parcel_number` text field. However, the format encoding (e.g., `"3745/025"` vs `"3745025"`) has not been verified across datasets. The spot-check (AC-3) will reveal whether the join produces results. If the spot-check YAML is empty, the join key formats differ and normalization is needed.
+Both EAS (`ramy-di5m`) and Tax Rolls (`wv5m-vpq2`) expose a `parcel_number` text field.
+The join produced 179,653 residential addresses (with `3mea-di5p`) — format match confirmed.
+Swapped to `ramy-di5m` (EAS with Units) per Luke's original data sources for per-unit granularity.
 
 ---
 
-## Questions for Luke
+## Resolved: Questions (self-answered)
 
-1. **Is `wv5m-vpq2` (Assessor Tax Rolls) the dataset you'd use for residential classification?**
-   If not, which DataSF parcel dataset should we use?
+1. **Parcel dataset:** `wv5m-vpq2` validated via 20/20 Street View spot-check. Luke's original
+   data sources did not include a parcel dataset — the residential filter is our design addition
+   (FR5) to improve data quality. No Luke confirmation needed.
 
-2. **Are SF condominiums classified as `SRES` in the assessor data, or is there a separate code?**
-   We found no `CONDO` code in the 2024 roll. Using `["SRES", "MRES"]` — is that correct?
+2. **Condominiums:** No separate `CONDO` code in 2024 assessor roll. Condos appear to fall under
+   `SRES`. Acceptable for this project's scope.
 
-3. **Is the `parcel_number` field format the same between EAS and the Tax Rolls?**
-   If not, do you know the normalization needed to make the join work?
+3. **parcel_number format:** Confirmed matching — join produces results with no normalization.
+
+4. **EAS dataset swapped:** Changed from `3mea-di5p` (base addresses, ~220k, per-building) to
+   `ramy-di5m` (addresses with units, ~388k, per-unit) — this is the dataset Luke provided in
+   his original data sources email. Per-unit granularity gives a better measure of how many
+   *people* are affected, not just how many *buildings*.
 
 4. **Annual freshness OK?** The 2024 Assessor roll is current. Annual update is fine for this project's scope?
 
