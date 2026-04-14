@@ -22,9 +22,9 @@ residential_filter:
   use_codes_residential: ["SRES", "MRES"]  # Actual wv5m-vpq2 codes; update when Luke confirms dataset
 
 lenses:
-  - { id: analysis_neighborhoods, datasf_id: p5b7-5n3h, label: "Analysis Neighborhoods" }
-  - { id: ej_communities,         datasf_id: v25p-yprq, label: "Environmental Justice Communities" }
-  - { id: equity_strategy,        datasf_id: twv9-dib2, label: "SFMTA Equity Strategy Neighborhoods" }
+  - { id: analysis_neighborhoods, datasf_id: j2bu-swwd, label: "Analysis Neighborhoods" }
+  - { id: ej_communities,         datasf_id: y6ci-vpnb, label: "Environmental Justice Communities" }
+  - { id: equity_strategy,        datasf_id: my8t-jqzp, label: "SFMTA Equity Strategy Neighborhoods" }
 
 validation:
   ground_truth_file: "tests/fixtures/ground_truth_addresses.yaml"
