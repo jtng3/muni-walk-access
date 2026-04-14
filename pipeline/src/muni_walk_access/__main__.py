@@ -39,6 +39,8 @@ def _write_timing_doc(
     t_addresses: float,
     t_gtfs: float,
     t_routing: float,
+    t_lens: float,
+    t_grid: float,
     t_total: float,
     peak_mb: float,
     address_count: int,
@@ -90,6 +92,8 @@ def _write_timing_doc(
 | address_fetch | {t_addresses:.1f} | {t_addresses / 60:.2f} |
 | gtfs_fetch | {t_gtfs:.1f} | {t_gtfs / 60:.2f} |
 | routing | {t_routing:.1f} | {t_routing / 60:.2f} |
+| stratify_lens | {t_lens:.1f} | {t_lens / 60:.2f} |
+| stratify_grid | {t_grid:.1f} | {t_grid / 60:.2f} |
 | **Total** | **{t_total:.1f}** | **{t_total / 60:.2f}** |
 
 ## Memory
@@ -213,9 +217,10 @@ def _run_stratify(
 def _check_routing_integrity(result: pl.DataFrame, address_count: int) -> None:
     """Validate routing result integrity and log output statistics."""
     null_dist = result["nearest_stop_distance_m"].null_count()
-    assert null_dist == 0, (
-        f"Integrity: {null_dist} null nearest_stop_distance_m value(s)"
-    )
+    if null_dist > 0:
+        raise ValueError(
+            f"Integrity: {null_dist} null nearest_stop_distance_m value(s)"
+        )
     null_stop_id = result["nearest_stop_id"].null_count()
     if null_stop_id > 0:
         logger.warning(
@@ -336,6 +341,8 @@ def _run_pipeline(config: Config) -> None:
         t_addresses=t_addresses,
         t_gtfs=t_gtfs,
         t_routing=t_routing,
+        t_lens=t_lens,
+        t_grid=t_grid,
         t_total=t_total,
         peak_mb=peak_mb,
         address_count=len(addresses),

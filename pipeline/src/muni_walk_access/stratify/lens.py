@@ -14,9 +14,11 @@ from typing import Any
 
 import geopandas as gpd
 import httpx
+import pandas as pd
 import polars as pl
 
 from muni_walk_access.config import Config
+from muni_walk_access.exceptions import IngestError
 from muni_walk_access.ingest.cache import CacheManager
 from muni_walk_access.ingest.datasf import SODA_BASE
 
@@ -59,9 +61,25 @@ def _fetch_lens_geojson(
     if fresh is not None:
         return fresh
     url = f"{SODA_BASE}/{dataset_id}.geojson?$limit=50000"
-    with httpx.Client(timeout=60.0) as client:
-        resp = client.get(url)
-        resp.raise_for_status()
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+    except (httpx.HTTPError, httpx.TransportError) as exc:
+        stale = cache.get_any("datasf", dataset_id)
+        if stale is not None:
+            logger.warning(
+                "Lens boundary fetch failed for %s (%s); returning stale cache %s",
+                dataset_id,
+                exc,
+                stale,
+            )
+            return stale
+        raise IngestError(
+            dataset_id,
+            f"HTTP error and no local cache: {exc}. "
+            "Warm the cache with network access first.",
+        ) from exc
     path = cache.put("datasf", dataset_id, resp.content, "geojson")
     logger.info("Lens boundary fetched: %s (%d bytes)", path, len(resp.content))
     return path
@@ -77,15 +95,24 @@ def _fetch_boundaries(config: Config) -> dict[str, gpd.GeoDataFrame]:
             gdf = gdf.to_crs("EPSG:4326")
         # EJ Communities is a scoring dataset covering all tracts;
         # filter to score >= 21 (top 1/3 = EJ designation).
-        if lens.id == "ej_communities" and "score" in gdf.columns:
-            before = len(gdf)
-            gdf = gdf[gdf["score"].astype(float) >= _EJ_SCORE_THRESHOLD]
-            logger.info(
-                "EJ Communities: %d/%d tracts meet score >= %d",
-                len(gdf),
-                before,
-                _EJ_SCORE_THRESHOLD,
-            )
+        if lens.id == "ej_communities":
+            if "score" not in gdf.columns:
+                logger.warning(
+                    "EJ Communities dataset missing 'score' column "
+                    "(columns: %s); treating ALL tracts as EJ — "
+                    "results may be incorrect",
+                    list(gdf.columns),
+                )
+            else:
+                gdf["score"] = pd.to_numeric(gdf["score"], errors="coerce")
+                before = len(gdf)
+                gdf = gdf[gdf["score"] >= _EJ_SCORE_THRESHOLD]
+                logger.info(
+                    "EJ Communities: %d/%d tracts meet score >= %d",
+                    len(gdf),
+                    before,
+                    _EJ_SCORE_THRESHOLD,
+                )
         boundaries[lens.id] = gdf
     return boundaries
 
