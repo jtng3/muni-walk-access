@@ -72,3 +72,7 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "geopandas"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pandas"
+ignore_missing_imports = true

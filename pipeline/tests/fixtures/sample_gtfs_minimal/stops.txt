@@ -1,0 +1,5 @@
+stop_id,stop_name,stop_lat,stop_lon
+S001,Castro/Market,37.7621,-122.4350
+S002,Church/Market,37.7642,-122.4279
+S003,Embarcadero,37.7956,-122.3935
+S004,Civic Center,37.7793,-122.4194

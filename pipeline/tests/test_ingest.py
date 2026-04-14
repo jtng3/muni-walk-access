@@ -58,6 +58,7 @@ def _make_gtfs_zip() -> bytes:
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(FIXTURE_DIR / "trips.txt", "trips.txt")
         zf.write(FIXTURE_DIR / "stop_times.txt", "stop_times.txt")
+        zf.write(FIXTURE_DIR / "stops.txt", "stops.txt")
     return buf.getvalue()
 
 
@@ -361,12 +362,14 @@ class TestFetchGtfs:
         return httpx.Client(transport=httpx.MockTransport(handler))
 
     def test_gtfs_produces_correct_columns(self, tmp_path: Path) -> None:
-        """T9f: parsed DataFrame has stop_id and trips_per_hour_peak columns."""
+        """T9f: DataFrame has stop_id, trips_per_hour_peak, stop_lat, stop_lon."""
         config = self._full_config(tmp_path)
         zip_bytes = _make_gtfs_zip()
         df, sha256 = fetch_gtfs(config, client=self._client(zip_bytes))
         assert "stop_id" in df.columns
         assert "trips_per_hour_peak" in df.columns
+        assert "stop_lat" in df.columns
+        assert "stop_lon" in df.columns
 
     def test_gtfs_sha256_computed(self, tmp_path: Path) -> None:
         """T9g: SHA256 hash is correct for the zip bytes."""

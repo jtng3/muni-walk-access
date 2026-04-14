@@ -12,6 +12,7 @@ Thumbs.db
 # === Python (pipeline/) ===
 pipeline/.venv/
 pipeline/.cache/
+pipeline/cache/
 pipeline/.env
 pipeline/__pycache__/
 pipeline/**/__pycache__/

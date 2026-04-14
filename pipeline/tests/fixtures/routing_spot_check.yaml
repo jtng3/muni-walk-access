@@ -1,0 +1,87 @@
+metadata:
+  osm_date: '20260413'
+  sample_seed: 42
+  sample_size: 1000
+  spot_check_size: 5
+  pass_threshold: '>=4/5 within 15% of Google Maps walking distance'
+  result: '3/5 pass (AC-2 threshold not met)'
+  snapping_correction: true
+  notes: >
+    Snapping distance correction applied: Euclidean distance from address to
+    nearest network node and from stop to nearest network node added to
+    pandana's node-to-node network distance. This fixed the worst
+    underestimates (entry #2: 75% error -> 0.8%) but cannot fix cases where
+    the OSMnx network routes a longer path than Google Maps (#3). Remaining
+    failures are OSM network completeness issues, not code bugs. A future
+    story should automate accuracy validation against OSRM with a larger
+    sample (500+) stratified by distance bucket.
+entries:
+- address: 20 DRAKE ST
+  from_lat: 37.7104513
+  from_lon: -122.43710041
+  nearest_stop_id: '5632'
+  stop_lat: 37.711155
+  stop_lon: -122.438241
+  computed_distance_m: 178.7
+  walk_minutes: 2.22
+  walking_directions_url: https://www.google.com/maps/dir/?api=1&origin=37.7104513,-122.43710041&destination=37.711155,-122.438241&travelmode=walking
+  google_distance_m: 152.1
+  pct_diff: 17.5
+  verdict: fail
+  root_cause: borderline — minor routing path difference vs Google
+- address: 1628 CALIFORNIA ST
+  from_lat: 37.79064443
+  from_lon: -122.42127813
+  nearest_stop_id: '3888'
+  stop_lat: 37.790661
+  stop_lon: -122.420541
+  computed_distance_m: 66.6
+  walk_minutes: 0.83
+  walking_directions_url: https://www.google.com/maps/dir/?api=1&origin=37.79064443,-122.42127813&destination=37.790661,-122.420541&travelmode=walking
+  google_distance_m: 66.1
+  pct_diff: 0.8
+  verdict: pass
+  root_cause: snapping correction fixed this — was 16.8m (75% error) before fix
+- address: 848 VALLEJO ST
+  from_lat: 37.79855775
+  from_lon: -122.41125346
+  nearest_stop_id: '5362'
+  stop_lat: 37.7991
+  stop_lon: -122.412203
+  computed_distance_m: 260.7
+  walk_minutes: 3.24
+  walking_directions_url: https://www.google.com/maps/dir/?api=1&origin=37.79855775,-122.41125346&destination=37.7991,-122.412203&travelmode=walking
+  google_distance_m: 160.0
+  pct_diff: 63.0
+  verdict: fail
+  root_cause: >
+    OSMnx network routes a longer path (260m) for a straightforward 160m
+    street walk. Google Maps screenshot confirms no shortcuts involved —
+    the OSM walk network is missing a direct edge or forcing a detour
+    through adjacent intersections. Network completeness issue.
+- address: 27 WANDA ST
+  from_lat: 37.7230737
+  from_lon: -122.43983463
+  nearest_stop_id: '5800'
+  stop_lat: 37.72326
+  stop_lon: -122.44124
+  computed_distance_m: 154.3
+  walk_minutes: 1.92
+  walking_directions_url: https://www.google.com/maps/dir/?api=1&origin=37.7230737,-122.43983463&destination=37.72326,-122.44124&travelmode=walking
+  google_distance_m: 160.9
+  pct_diff: 4.1
+  verdict: pass
+  root_cause: accurate after snapping correction
+- address: 542 BRUSSELS ST
+  from_lat: 37.72527115
+  from_lon: -122.40514492
+  nearest_stop_id: '6373'
+  stop_lat: 37.72637
+  stop_lon: -122.40301
+  computed_distance_m: 269.0
+  walk_minutes: 3.34
+  walking_directions_url: https://www.google.com/maps/dir/?api=1&origin=37.72527115,-122.40514492&destination=37.72637,-122.40301&travelmode=walking
+  google_distance_m: 260.0
+  pct_diff: 3.5
+  verdict: pass
+  root_cause: accurate after snapping correction

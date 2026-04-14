@@ -51,9 +51,10 @@ def _compute_stop_frequencies(
     peak_start_sec: int,
     peak_end_sec: int,
 ) -> pl.DataFrame:
-    """Parse trips.txt + stop_times.txt from GTFS zip, return per-stop trip counts.
+    """Parse trips.txt + stop_times.txt + stops.txt from GTFS zip.
 
-    Returns DataFrame with columns: stop_id (str), trips_per_hour_peak (float).
+    Returns DataFrame with columns:
+        stop_id (str), trips_per_hour_peak (float), stop_lat (float), stop_lon (float).
     """
     try:
         zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
@@ -65,8 +66,15 @@ def _compute_stop_frequencies(
 
     with zf:
         try:
-            trips_df = pl.read_csv(io.BytesIO(zf.read("trips.txt")))
-            stop_times_df = pl.read_csv(io.BytesIO(zf.read("stop_times.txt")))
+            trips_df = pl.read_csv(
+                io.BytesIO(zf.read("trips.txt")), infer_schema_length=0
+            )
+            stop_times_df = pl.read_csv(
+                io.BytesIO(zf.read("stop_times.txt")), infer_schema_length=0
+            )
+            stops_df = pl.read_csv(
+                io.BytesIO(zf.read("stops.txt")), infer_schema_length=0
+            )
         except KeyError as exc:
             raise IngestError(
                 GTFS_DATASET_ID,
@@ -104,6 +112,27 @@ def _compute_stop_frequencies(
     # Cast stop_id to str for consistency
     stop_trip_counts = stop_trip_counts.with_columns(pl.col("stop_id").cast(pl.Utf8))
 
+    # Join stop coordinates from stops.txt
+    stops_coords = stops_df.select(
+        [
+            pl.col("stop_id").cast(pl.Utf8),
+            pl.col("stop_lat").cast(pl.Float64),
+            pl.col("stop_lon").cast(pl.Float64),
+        ]
+    )
+    stop_trip_counts = stop_trip_counts.join(stops_coords, on="stop_id", how="left")
+
+    # Drop stops with null coordinates (stop_id in stop_times but not in stops.txt).
+    pre_join = len(stop_trip_counts)
+    stop_trip_counts = stop_trip_counts.filter(
+        pl.col("stop_lat").is_not_null() & pl.col("stop_lon").is_not_null()
+    )
+    if len(stop_trip_counts) < pre_join:
+        logger.warning(
+            "Dropped %d stop(s) with no coordinates in stops.txt",
+            pre_join - len(stop_trip_counts),
+        )
+
     return stop_trip_counts
 
 
@@ -117,7 +146,7 @@ def fetch_gtfs(
     no upstream and no cache exist.
 
     Returns:
-        df: DataFrame with columns [stop_id, trips_per_hour_peak]
+        df: DataFrame with columns [stop_id, trips_per_hour_peak, stop_lat, stop_lon]
         sha256: hex digest of the raw zip bytes
 
     """
