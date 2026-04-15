@@ -12,6 +12,7 @@ const dataDir = join(dirname(fileURLToPath(import.meta.url)), "../src/data");
 
 const fixtures = [
   { seed: "grid.seed.json", target: "grid.json" },
+  { seed: "grid_hex_r8.seed.json", target: "grid_hex_r8.json" },
   { seed: "config_snapshot.seed.json", target: "config_snapshot.json" },
   { seed: "validation_results.seed.json", target: "validation_results.json" },
 ];

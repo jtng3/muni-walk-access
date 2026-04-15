@@ -13,7 +13,7 @@ import pytest
 from shapely.geometry import box
 
 from muni_walk_access.config import Config, load_config
-from muni_walk_access.stratify.grid import compute_grid
+from muni_walk_access.stratify.grid import compute_grid, compute_hex_grids
 from muni_walk_access.stratify.lens import (
     aggregate_to_lenses,
     compute_lens_flags,
@@ -550,3 +550,152 @@ class TestDeterminism:
         neighborhoods, _ = compute_grid(strat, config)
         ids = [nb.id for nb in neighborhoods]
         assert ids == ["a-first", "m-mid", "z-last"]
+
+
+# ---------------------------------------------------------------------------
+# compute_hex_grid tests (Story 1.11)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeHexGrids:
+    """Tests for compute_hex_grids — multi-resolution H3 cell assignment."""
+
+    def test_returns_dict_of_resolutions(self) -> None:
+        """compute_hex_grids returns a dict keyed by resolution."""
+        config = _full_config()
+        strat = _make_stratified_multi(
+            [37.75, 37.78, 37.76], [-122.45, -122.41, -122.43]
+        )
+        result = compute_hex_grids(strat, config, resolutions=[7, 8])
+        assert set(result.keys()) == {7, 8}
+
+    def test_default_resolutions_4_through_10(self) -> None:
+        """Default resolutions are 4-10 inclusive."""
+        config = _full_config()
+        strat = _make_stratified_multi([37.75], [-122.45])
+        result = compute_hex_grids(strat, config)
+        assert set(result.keys()) == set(range(4, 11))
+
+    def test_cell_ids_valid_h3_at_correct_resolution(self) -> None:
+        """All returned cell IDs are valid H3 cells at their stated resolution."""
+        import h3
+
+        config = _full_config()
+        strat = _make_stratified_multi([37.75, 37.76], [-122.45, -122.44])
+        result = compute_hex_grids(strat, config, resolutions=[7, 8, 9])
+        for res, cells in result.items():
+            for cell in cells:
+                assert h3.is_valid_cell(cell.id)
+                assert h3.get_resolution(cell.id) == res
+
+    def test_pct_within_shape_matches_axes(self) -> None:
+        """Every cell's pct_within has shape [n_freq][n_walk]."""
+        config = _full_config()
+        strat = _make_stratified_multi([37.75], [-122.45])
+        result = compute_hex_grids(strat, config, resolutions=[8])
+        n_freq = len(config.grid.frequency_threshold_min)
+        n_walk = len(config.grid.walking_minutes)
+        for cell in result[8]:
+            assert len(cell.pct_within) == n_freq
+            for row in cell.pct_within:
+                assert len(row) == n_walk
+
+    def test_pct_within_values_in_unit_range(self) -> None:
+        """All pct_within values are in [0.0, 1.0]."""
+        config = _full_config()
+        strat = _make_stratified_multi(
+            [37.75, 37.76, 37.77], [-122.45, -122.44, -122.43]
+        )
+        result = compute_hex_grids(strat, config, resolutions=[8])
+        for cell in result[8]:
+            for row in cell.pct_within:
+                for val in row:
+                    assert 0.0 <= val <= 1.0
+
+    def test_higher_res_more_cells(self) -> None:
+        """Higher resolution produces more cells from the same address set."""
+        config = _full_config()
+        lats = [37.72, 37.75, 37.78, 37.80]
+        lons = [-122.40, -122.45, -122.42, -122.46]
+        strat = _make_stratified_multi(lats, lons)
+        result = compute_hex_grids(strat, config, resolutions=[6, 8, 10])
+        # More addresses in same area → more unique cells at higher res
+        assert len(result[10]) >= len(result[8]) >= len(result[6])
+
+    def test_population_matches_addresses_in_cell(self) -> None:
+        """Cell population equals number of addresses assigned to that cell."""
+        import h3
+
+        config = _full_config()
+        lat, lon = 37.7612, -122.4187
+        strat = _make_stratified_multi([lat, lat + 0.0001], [lon, lon + 0.0001])
+        result = compute_hex_grids(strat, config, resolutions=[8])
+        cell_id = h3.latlng_to_cell(lat, lon, 8)
+        matching = [c for c in result[8] if c.id == cell_id]
+        assert len(matching) == 1
+        assert matching[0].population == 2
+
+    def test_center_coords_in_sf_range(self) -> None:
+        """center_lat and center_lon are in SF geographic range."""
+        config = _full_config()
+        strat = _make_stratified_multi([37.75], [-122.45])
+        result = compute_hex_grids(strat, config, resolutions=[8])
+        for cell in result[8]:
+            assert 37.0 <= cell.center_lat <= 38.5
+            assert -123.5 <= cell.center_lon <= -121.5
+
+    def test_empty_input_returns_empty_lists(self) -> None:
+        """Empty stratified DataFrame returns empty lists for all resolutions."""
+        config = _full_config()
+        strat = _make_stratified(n=0)
+        result = compute_hex_grids(strat, config, resolutions=[7, 8])
+        assert result[7] == []
+        assert result[8] == []
+
+    def test_cells_sorted_by_id_per_resolution(self) -> None:
+        """Returned cells are sorted ascending by H3 cell ID."""
+        config = _full_config()
+        lats = [37.72, 37.75, 37.78, 37.80]
+        lons = [-122.40, -122.45, -122.42, -122.46]
+        strat = _make_stratified_multi(lats, lons)
+        result = compute_hex_grids(strat, config, resolutions=[8])
+        ids = [c.id for c in result[8]]
+        assert ids == sorted(ids)
+
+    def test_uses_latitude_longitude_columns(self) -> None:
+        """compute_hex_grids reads 'latitude'/'longitude' (not 'lat'/'lon')."""
+        import h3
+
+        config = _full_config()
+        lat, lon = 37.7612, -122.4187
+        strat = _make_stratified_multi([lat], [lon])
+        assert "latitude" in strat.columns
+        assert "longitude" in strat.columns
+        result = compute_hex_grids(strat, config, resolutions=[8])
+        expected_cell_id = h3.latlng_to_cell(lat, lon, 8)
+        assert any(c.id == expected_cell_id for c in result[8])
+
+
+def _make_stratified_multi(
+    lats: list[float],
+    lons: list[float],
+    walk_minutes: float = 4.0,
+    trips_per_hour_peak: float = 8.0,
+) -> pl.DataFrame:
+    """Build a stratified DataFrame with multiple lat/lon points."""
+    n = len(lats)
+    return pl.DataFrame(
+        {
+            "address": [f"addr-{i}" for i in range(n)],
+            "latitude": lats,
+            "longitude": lons,
+            "nearest_stop_distance_m": [100.0] * n,
+            "walk_minutes": [walk_minutes] * n,
+            "nearest_stop_id": ["S0"] * n,
+            "neighborhood_id": ["test-nbhd"] * n,
+            "neighborhood_name": ["Test Nbhd"] * n,
+            "ej_community": [False] * n,
+            "equity_strategy": [True] * n,
+            "trips_per_hour_peak": [trips_per_hour_peak] * n,
+        }
+    )

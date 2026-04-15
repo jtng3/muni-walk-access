@@ -88,3 +88,21 @@ export interface NeighborhoodFeatureProperties {
   readonly lens_flags: LensFlags;
   readonly pct_at_defaults: number;
 }
+
+export interface HexCell {
+  readonly id: string;
+  readonly center_lat: number;
+  readonly center_lon: number;
+  readonly population: number;
+  readonly pct_within: readonly (readonly number[])[];
+}
+
+export interface HexGridSchema {
+  readonly version: string;
+  readonly h3_resolution: number;
+  readonly run_id: string;
+  readonly config_snapshot_url: string;
+  readonly axes: GridAxes;
+  readonly defaults: GridDefaults;
+  readonly cells: readonly HexCell[];
+}

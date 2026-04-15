@@ -10,7 +10,11 @@ from pydantic import ValidationError
 
 from muni_walk_access.emit.schemas import (
     ConfigSnapshot,
+    GridAxes,
+    GridDefaults,
     GridSchema,
+    HexCell,
+    HexGridSchema,
     NeighborhoodFeatureProperties,
     ValidationResults,
 )
@@ -295,3 +299,149 @@ class TestNeighborhoodFeaturePropertiesSchema:
         data = {**self.VALID, "pct_at_defaults": 1.5}
         with pytest.raises(ValidationError, match="pct_at_defaults"):
             NeighborhoodFeatureProperties.model_validate(data)
+
+
+# ---------------------------------------------------------------------------
+# HexCell and HexGridSchema (Story 1.11)
+# ---------------------------------------------------------------------------
+
+_N_FREQ = 7
+_N_WALK = 6
+
+
+def _make_hex_cell(cell_id: str = "88283082c3fffff") -> HexCell:
+    """Build a minimal HexCell with uniform pct_within values."""
+    grid: list[list[float]] = [[0.5] * _N_WALK for _ in range(_N_FREQ)]
+    return HexCell(
+        id=cell_id,
+        center_lat=37.7612,
+        center_lon=-122.4187,
+        population=100,
+        pct_within=grid,
+    )
+
+
+def _make_hex_grid_schema(cells: list[HexCell] | None = None) -> HexGridSchema:
+    """Build a minimal HexGridSchema for testing."""
+    return HexGridSchema(
+        version="1.0.0",
+        h3_resolution=8,
+        run_id="run-test",
+        config_snapshot_url="./config_snapshot.json",
+        axes=GridAxes(
+            frequency_minutes=[4, 6, 8, 10, 12, 15, 20],
+            walking_minutes=[3, 5, 7, 10, 12, 15],
+        ),
+        defaults=GridDefaults(frequency_idx=1, walking_idx=2),
+        cells=cells or [_make_hex_cell()],
+    )
+
+
+class TestHexCellSchema:
+    """Validate HexCell schema."""
+
+    def test_valid_hex_cell(self) -> None:
+        """HexCell accepts valid data."""
+        cell = _make_hex_cell()
+        assert cell.id == "88283082c3fffff"
+        assert cell.population == 100
+        assert len(cell.pct_within) == _N_FREQ
+        assert all(len(row) == _N_WALK for row in cell.pct_within)
+
+    def test_pct_within_above_one_rejected(self) -> None:
+        """pct_within > 1.0 raises ValidationError."""
+        bad_grid: list[list[float]] = [[1.5] + [0.5] * (_N_WALK - 1)] + [
+            [0.5] * _N_WALK for _ in range(_N_FREQ - 1)
+        ]
+        with pytest.raises(ValidationError):
+            HexCell(
+                id="88283082c3fffff",
+                center_lat=37.76,
+                center_lon=-122.42,
+                population=10,
+                pct_within=bad_grid,
+            )
+
+    def test_pct_within_below_zero_rejected(self) -> None:
+        """pct_within < 0.0 raises ValidationError."""
+        bad_grid: list[list[float]] = [[-0.1] + [0.5] * (_N_WALK - 1)] + [
+            [0.5] * _N_WALK for _ in range(_N_FREQ - 1)
+        ]
+        with pytest.raises(ValidationError):
+            HexCell(
+                id="88283082c3fffff",
+                center_lat=37.76,
+                center_lon=-122.42,
+                population=10,
+                pct_within=bad_grid,
+            )
+
+    def test_round_trip(self) -> None:
+        """HexCell round-trips through model_dump / model_validate."""
+        cell = _make_hex_cell()
+        data = cell.model_dump()
+        cell2 = HexCell.model_validate(data)
+        assert cell == cell2
+
+
+class TestHexGridSchemaValidation:
+    """Validate HexGridSchema cross-field validators."""
+
+    def test_valid_hex_grid_schema(self) -> None:
+        """HexGridSchema accepts well-formed data."""
+        schema = _make_hex_grid_schema()
+        assert schema.version == "1.0.0"
+        assert schema.h3_resolution == 8
+        assert len(schema.cells) == 1
+
+    def test_frequency_idx_out_of_bounds(self) -> None:
+        """frequency_idx >= len(axes) raises ValidationError."""
+        with pytest.raises(ValidationError, match="frequency_idx"):
+            HexGridSchema(
+                version="1.0.0",
+                h3_resolution=8,
+                run_id="r",
+                config_snapshot_url="./c.json",
+                axes=GridAxes(
+                    frequency_minutes=[4, 6, 8, 10, 12, 15, 20],
+                    walking_minutes=[3, 5, 7, 10, 12, 15],
+                ),
+                defaults=GridDefaults(frequency_idx=99, walking_idx=0),
+                cells=[_make_hex_cell()],
+            )
+
+    def test_walking_idx_out_of_bounds(self) -> None:
+        """walking_idx >= len(axes) raises ValidationError."""
+        with pytest.raises(ValidationError, match="walking_idx"):
+            HexGridSchema(
+                version="1.0.0",
+                h3_resolution=8,
+                run_id="r",
+                config_snapshot_url="./c.json",
+                axes=GridAxes(
+                    frequency_minutes=[4, 6, 8, 10, 12, 15, 20],
+                    walking_minutes=[3, 5, 7, 10, 12, 15],
+                ),
+                defaults=GridDefaults(frequency_idx=0, walking_idx=99),
+                cells=[_make_hex_cell()],
+            )
+
+    def test_cell_pct_within_wrong_row_count(self) -> None:
+        """Cell pct_within row count != n_freq raises ValidationError."""
+        bad_grid: list[list[float]] = [[0.5] * _N_WALK for _ in range(_N_FREQ - 2)]
+        cell = HexCell(
+            id="88283082c3fffff",
+            center_lat=37.76,
+            center_lon=-122.42,
+            population=10,
+            pct_within=bad_grid,
+        )
+        with pytest.raises(ValidationError, match="pct_within"):
+            _make_hex_grid_schema(cells=[cell])
+
+    def test_round_trip_json(self) -> None:
+        """HexGridSchema round-trips through model_dump_json."""
+        schema = _make_hex_grid_schema()
+        json_str = schema.model_dump_json()
+        schema2 = HexGridSchema.model_validate_json(json_str)
+        assert schema == schema2

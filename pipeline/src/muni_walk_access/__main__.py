@@ -22,8 +22,9 @@ from muni_walk_access.emit.config_snapshot import write_config_snapshot
 from muni_walk_access.emit.docs import _write_lens_verification_doc, _write_timing_doc
 from muni_walk_access.emit.downloads import write_downloads
 from muni_walk_access.emit.geojson import write_neighborhoods_geojson
+from muni_walk_access.emit.grid_hex_json import write_grid_hex_json
 from muni_walk_access.emit.grid_json import write_grid_json
-from muni_walk_access.emit.schemas import CityWide, NeighborhoodGrid
+from muni_walk_access.emit.schemas import CityWide, HexCell, NeighborhoodGrid
 from muni_walk_access.exceptions import IngestError, NetworkBuildError
 from muni_walk_access.ingest.cache import CacheManager
 from muni_walk_access.ingest.datasf import (
@@ -34,7 +35,7 @@ from muni_walk_access.ingest.datasf import (
 from muni_walk_access.ingest.gtfs import fetch_gtfs
 from muni_walk_access.network.build import build_network
 from muni_walk_access.route.nearest_stop import route_nearest_stops
-from muni_walk_access.stratify.grid import compute_grid
+from muni_walk_access.stratify.grid import compute_grid, compute_hex_grids
 from muni_walk_access.stratify.lens import aggregate_to_lenses, compute_lens_flags
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,7 @@ def _print_summary(
     t_routing: float,
     t_lens: float,
     t_grid: float,
+    t_hex: float,
     t_total: float,
     peak_mb: float,
 ) -> None:
@@ -165,6 +167,7 @@ def _print_summary(
     print(f"  routing         {t_routing:8.1f}s")
     print(f"  stratify_lens   {t_lens:8.1f}s")
     print(f"  stratify_grid   {t_grid:8.1f}s")
+    print(f"  stratify_hex    {t_hex:8.1f}s")
     print(f"  TOTAL           {t_total:8.1f}s  ({t_total / 60:.1f} min)")
     print(f"\nPeak Python memory: {peak_mb:.1f} MB")
 
@@ -190,6 +193,7 @@ def _get_git_provenance(config_path: Path) -> tuple[str, str, str]:
 def _run_emit(
     neighborhoods: list[NeighborhoodGrid],
     city_wide: CityWide,
+    hex_grids: dict[int, list[HexCell]],
     stratified: pl.DataFrame,
     config: Config,
     run_id: str,
@@ -202,7 +206,7 @@ def _run_emit(
     upstream_fallback: bool,
     output_dir: Path,
 ) -> float:
-    """Run emit stages: grid_json, config_snapshot, geojson, downloads.
+    """Run emit stages: grid_json, grid_hex_json, config_snapshot, geojson, downloads.
 
     Returns elapsed time in seconds.
     """
@@ -210,6 +214,8 @@ def _run_emit(
     t0 = time.perf_counter()
 
     write_grid_json(neighborhoods, city_wide, config, run_id, output_dir)
+    if hex_grids:
+        write_grid_hex_json(hex_grids, config, run_id, output_dir)
     config_snapshot_path = write_config_snapshot(
         run_id=run_id,
         git_sha=git_sha,
@@ -292,6 +298,13 @@ def _run_pipeline(
         result, stops_df, config
     )
 
+    # Hex grids (resolution picker, resolutions 4-10)
+    logger.info("Stage stratify_hex: starting")
+    t0 = time.perf_counter()
+    hex_grids = compute_hex_grids(stratified, config)
+    t_hex = time.perf_counter() - t0
+    logger.info("Stage stratify_hex: %.1fs", t_hex)
+
     # Collect provenance after stratify (boundary datasets are fetched there)
     datasf_timestamps = get_datasf_timestamps()
     upstream_fallback = was_fallback_used()
@@ -304,6 +317,7 @@ def _run_pipeline(
     t_emit = _run_emit(
         neighborhoods,
         city_wide,
+        hex_grids,
         stratified,
         config,
         run_id,
@@ -327,6 +341,7 @@ def _run_pipeline(
         t_routing=t_routing,
         t_lens=t_lens,
         t_grid=t_grid,
+        t_hex=t_hex,
         t_emit=t_emit,
         t_total=t_total,
         peak_mb=peak_mb,
@@ -350,6 +365,7 @@ def _run_pipeline(
         t_routing=t_routing,
         t_lens=t_lens,
         t_grid=t_grid,
+        t_hex=t_hex,
         t_total=t_total,
         peak_mb=peak_mb,
     )

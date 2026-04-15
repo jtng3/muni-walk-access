@@ -22,6 +22,7 @@ def _write_timing_doc(
     t_routing: float,
     t_lens: float,
     t_grid: float,
+    t_hex: float,
     t_emit: float,
     t_total: float,
     peak_mb: float,
@@ -76,6 +77,7 @@ def _write_timing_doc(
 | routing | {t_routing:.1f} | {t_routing / 60:.2f} |
 | stratify_lens | {t_lens:.1f} | {t_lens / 60:.2f} |
 | stratify_grid | {t_grid:.1f} | {t_grid / 60:.2f} |
+| stratify_hex | {t_hex:.1f} | {t_hex / 60:.2f} |
 | emit | {t_emit:.1f} | {t_emit / 60:.2f} |
 | **Total** | **{t_total:.1f}** | **{t_total / 60:.2f}** |
 

@@ -205,3 +205,60 @@ class NeighborhoodFeatureProperties(BaseModel):
         if not (0.0 <= v <= 1.0):
             raise ValueError(f"pct_at_defaults must be in [0.0, 1.0], got {v}")
         return v
+
+
+class HexCell(BaseModel):
+    """Per-hex-cell accessibility data for an H3 resolution."""
+
+    id: str
+    center_lat: float
+    center_lon: float
+    population: int
+    pct_within: list[list[float]]
+
+    @field_validator("pct_within", mode="after")
+    @classmethod
+    def pct_within_in_range(cls, v: list[list[float]]) -> list[list[float]]:
+        """Raise if any pct_within value is outside [0.0, 1.0]."""
+        return _validate_pct_matrix(v)
+
+
+class HexGridSchema(BaseModel):
+    """Root schema for the grid_hex.json data contract file."""
+
+    version: str
+    h3_resolution: int
+    run_id: str
+    config_snapshot_url: str
+    axes: GridAxes
+    defaults: GridDefaults
+    cells: list[HexCell]
+
+    @model_validator(mode="after")
+    def validate_hex_grid_structure(self) -> "HexGridSchema":
+        """Validate matrix dimensions match axes and defaults are in bounds."""
+        n_freq = len(self.axes.frequency_minutes)
+        n_walk = len(self.axes.walking_minutes)
+        if not (0 <= self.defaults.frequency_idx < n_freq):
+            raise ValueError(
+                f"defaults.frequency_idx {self.defaults.frequency_idx}"
+                f" out of bounds for {n_freq} frequency values"
+            )
+        if not (0 <= self.defaults.walking_idx < n_walk):
+            raise ValueError(
+                f"defaults.walking_idx {self.defaults.walking_idx}"
+                f" out of bounds for {n_walk} walking values"
+            )
+        for cell in self.cells:
+            if len(cell.pct_within) != n_freq:
+                raise ValueError(
+                    f"Cell '{cell.id}' pct_within has {len(cell.pct_within)} rows,"
+                    f" expected {n_freq}"
+                )
+            for i, row in enumerate(cell.pct_within):
+                if len(row) != n_walk:
+                    raise ValueError(
+                        f"Cell '{cell.id}' pct_within[{i}] has"
+                        f" {len(row)} cols, expected {n_walk}"
+                    )
+        return self

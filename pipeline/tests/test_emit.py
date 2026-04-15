@@ -14,10 +14,13 @@ from muni_walk_access.config import Config, load_config
 from muni_walk_access.emit.config_snapshot import write_config_snapshot
 from muni_walk_access.emit.downloads import write_downloads
 from muni_walk_access.emit.geojson import write_neighborhoods_geojson
+from muni_walk_access.emit.grid_hex_json import write_grid_hex_json
 from muni_walk_access.emit.grid_json import write_grid_json
 from muni_walk_access.emit.schemas import (
     CityWide,
     GridSchema,
+    HexCell,
+    HexGridSchema,
     LensFlags,
     NeighborhoodGrid,
 )
@@ -334,6 +337,134 @@ class TestWriteNeighborhoodsGeojson:
 # ---------------------------------------------------------------------------
 # T6: downloads
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# grid_hex_json (Story 1.11)
+# ---------------------------------------------------------------------------
+
+
+def _make_hex_cells(count: int = 2) -> list[HexCell]:
+    """Minimal list of HexCell objects for testing."""
+    n_freq, n_walk = 7, 6
+    grid: list[list[float]] = [[0.4] * n_walk for _ in range(n_freq)]
+    cells = []
+    # Use real H3 cell IDs at res 8 near SF
+    cell_ids = ["8828308281fffff", "88283082c3fffff"]
+    for i in range(count):
+        cells.append(
+            HexCell(
+                id=cell_ids[i % len(cell_ids)],
+                center_lat=37.76 + i * 0.01,
+                center_lon=-122.42 + i * 0.01,
+                population=100 + i * 50,
+                pct_within=grid,
+            )
+        )
+    return cells
+
+
+def _make_hex_grids(resolutions: list[int] | None = None) -> dict[int, list[HexCell]]:
+    """Minimal hex_grids dict for testing."""
+    if resolutions is None:
+        resolutions = [8]
+    return {res: _make_hex_cells(2) for res in resolutions}
+
+
+class TestWriteGridHexJson:
+    """Tests for emit.grid_hex_json.write_grid_hex_json."""
+
+    def test_writes_files_per_resolution(self, tmp_path: Path) -> None:
+        """write_grid_hex_json creates one grid_hex_r{res}.json per resolution."""
+        cfg = _full_config()
+        paths = write_grid_hex_json(_make_hex_grids([7, 8]), cfg, "run-1", tmp_path)
+        assert len(paths) == 2
+        out_dir = tmp_path / "site" / "src" / "data"
+        assert (out_dir / "grid_hex_r7.json").exists()
+        assert (out_dir / "grid_hex_r8.json").exists()
+
+    def test_valid_hex_grid_schema(self, tmp_path: Path) -> None:
+        """grid_hex_r8.json round-trips through HexGridSchema.model_validate_json."""
+        cfg = _full_config()
+        paths = write_grid_hex_json(_make_hex_grids([8]), cfg, "run-1", tmp_path)
+        r8_path = next(p for p in paths if "r8" in p.name)
+        schema = HexGridSchema.model_validate_json(r8_path.read_text())
+        assert schema.version == "1.0.0"
+        assert schema.h3_resolution == 8
+        assert schema.run_id == "run-1"
+        assert len(schema.cells) == 2
+
+    def test_h3_resolution_field_matches_filename(self, tmp_path: Path) -> None:
+        """h3_resolution in each file matches its filename suffix."""
+        cfg = _full_config()
+        paths = write_grid_hex_json(_make_hex_grids([7, 8]), cfg, "run-1", tmp_path)
+        for path in paths:
+            schema = HexGridSchema.model_validate_json(path.read_text())
+            assert f"r{schema.h3_resolution}" in path.name
+
+    def test_axes_match_grid_json(self, tmp_path: Path) -> None:
+        """grid_hex_r8.json axes and defaults match grid.json exactly."""
+        cfg = _full_config()
+        hex_paths = write_grid_hex_json(_make_hex_grids([8]), cfg, "run-1", tmp_path)
+        grid_path = write_grid_json(
+            _make_neighborhoods(), _make_city_wide(), cfg, "run-1", tmp_path
+        )
+        r8_path = next(p for p in hex_paths if "r8" in p.name)
+        hex_schema = HexGridSchema.model_validate_json(r8_path.read_text())
+        grid_schema = GridSchema.model_validate_json(grid_path.read_text())
+        assert hex_schema.axes == grid_schema.axes
+        assert hex_schema.defaults.frequency_idx == grid_schema.defaults.frequency_idx
+        assert hex_schema.defaults.walking_idx == grid_schema.defaults.walking_idx
+
+    def test_cells_sorted_by_id(self, tmp_path: Path) -> None:
+        """Cells in grid_hex_r8.json are sorted by id."""
+        cfg = _full_config()
+        paths = write_grid_hex_json(_make_hex_grids([8]), cfg, "run-1", tmp_path)
+        r8_path = next(p for p in paths if "r8" in p.name)
+        schema = HexGridSchema.model_validate_json(r8_path.read_text())
+        ids = [c.id for c in schema.cells]
+        assert ids == sorted(ids)
+
+    def test_raises_on_empty_hex_grids(self, tmp_path: Path) -> None:
+        """write_grid_hex_json raises ValueError for empty hex_grids dict."""
+        cfg = _full_config()
+        with pytest.raises(ValueError, match="empty"):
+            write_grid_hex_json({}, cfg, "run-1", tmp_path)
+
+    def test_deterministic_output(self, tmp_path: Path) -> None:
+        """Calling write_grid_hex_json twice with identical inputs is byte-identical."""
+        cfg = _full_config()
+        hex_grids = _make_hex_grids([8])
+        paths1 = write_grid_hex_json(hex_grids, cfg, "run-det", tmp_path / "run1")
+        paths2 = write_grid_hex_json(hex_grids, cfg, "run-det", tmp_path / "run2")
+        for p1, p2 in zip(
+            sorted(paths1, key=lambda p: p.name),
+            sorted(paths2, key=lambda p: p.name),
+        ):
+            assert p1.read_bytes() == p2.read_bytes()
+
+    def test_warns_on_low_cell_count(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Warns when cell count deviates >2x from expected."""
+        import logging
+
+        cfg = _full_config()
+        # 2 cells for res 8 (expected ~2000) → well below expected/2 → should warn
+        with caplog.at_level(
+            logging.WARNING, logger="muni_walk_access.emit.grid_hex_json"
+        ):
+            write_grid_hex_json(_make_hex_grids([8]), cfg, "run-1", tmp_path)
+        assert any("deviates" in r.message for r in caplog.records)
+
+    def test_skips_resolution_with_no_cells(self, tmp_path: Path) -> None:
+        """Resolutions with empty cell lists are skipped (no file written)."""
+        cfg = _full_config()
+        hex_grids: dict[int, list[HexCell]] = {8: _make_hex_cells(2), 7: []}
+        paths = write_grid_hex_json(hex_grids, cfg, "run-1", tmp_path)
+        names = [p.name for p in paths]
+        assert "grid_hex_r8.json" in names
+        assert "grid_hex_r7.json" not in names
 
 
 class TestWriteDownloads:
