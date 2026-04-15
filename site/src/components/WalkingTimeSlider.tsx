@@ -81,9 +81,6 @@ export default function WalkingTimeSlider({
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">
-        Walking time: how far is a reasonable walk? Drag to change.
-      </p>
     </div>
   );
 }

@@ -1,6 +1,7 @@
+import { useMemo } from "react";
 import { useUrlState } from "@/lib/useUrlState";
+import { useTheme } from "@/lib/useTheme";
 import type { GridSchema } from "@/lib/types";
-import HeadlineReactive from "./HeadlineReactive";
 import Controls from "./Controls";
 import MapView from "./MapView";
 
@@ -9,6 +10,10 @@ interface InteractiveViewProps {
 }
 
 export default function InteractiveView({ data }: InteractiveViewProps) {
+  const totalAddresses = useMemo(
+    () => data.neighborhoods.reduce((sum, n) => sum + n.population, 0),
+    [data.neighborhoods],
+  );
   const [freqIdx, setFreqIdx] = useUrlState(
     "freq",
     data.defaults.frequency_idx,
@@ -21,14 +26,23 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
     0,
     data.axes.walking_minutes.length - 1,
   );
+  const [theme, toggleTheme] = useTheme();
+  const isDark = theme === "dark";
 
   const pct = data.city_wide.pct_within[freqIdx][walkIdx];
   const freqMin = data.axes.frequency_minutes[freqIdx];
   const walkMin = data.axes.walking_minutes[walkIdx];
 
   return (
-    <>
-      <HeadlineReactive pct={pct} frequencyMin={freqMin} walkingMin={walkMin} />
+    <div className="relative" style={{ height: "calc(100dvh - 3rem)" }}>
+      <div className="absolute inset-0">
+        <MapView
+          data={data}
+          freqIdx={freqIdx}
+          walkIdx={walkIdx}
+          isDark={isDark}
+        />
+      </div>
       <Controls
         axes={data.axes}
         defaults={data.defaults}
@@ -36,10 +50,13 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
         walkIdx={walkIdx}
         onFreqChange={setFreqIdx}
         onWalkChange={setWalkIdx}
+        isDark={isDark}
+        onThemeToggle={toggleTheme}
+        pct={pct}
+        freqMin={freqMin}
+        walkMin={walkMin}
+        totalAddresses={totalAddresses}
       />
-      <div className="mt-6 h-[60vh] min-h-[400px] rounded-lg overflow-hidden">
-        <MapView data={data} freqIdx={freqIdx} walkIdx={walkIdx} />
-      </div>
-    </>
+    </div>
   );
 }

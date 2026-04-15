@@ -83,80 +83,192 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * === Theme System ===
+ *
+ * 3 inputs per mode → all surface/text/accent colors derived.
+ * Inspired by Linear's LCH theme generation (98 vars → 3 inputs).
+ *
+ * base:     Background hue/lightness. Sets the "temperature" of the UI.
+ * accent:   Interactive color (buttons, focus rings, links).
+ * contrast: 0–1. Scales the distance between surfaces and text.
+ *
+ * Design decisions:
+ *   Light base H=80 (warm stone) — approachable for a civic/community tool.
+ *   Dark base H=265 (cool blue-black) — data-dashboard feel; viridis yellows
+ *     pop harder against blue-black than warm-black.
+ *   Accent H=257 (slate-blue) — doesn't conflict with any viridis stop
+ *     (viridis spans H≈310→110). Same hue both modes, brighter in dark.
+ *   Contrast 0.85/0.80 — slightly lower in dark mode because dark screens
+ *     already have high intrinsic contrast.
+ */
+
+/* --- Light theme inputs --- */
 :root {
-  /* Warm stone neutrals + civic slate-700 accent */
-  --background: oklch(0.985 0.001 106.423); /* stone-50  #FAFAF9 */
-  --foreground: oklch(0.216 0.006 56.043); /* stone-900 #1C1917 */
-  --card: oklch(0.985 0.001 106.423); /* stone-50 */
-  --card-foreground: oklch(0.216 0.006 56.043); /* stone-900 */
-  --popover: oklch(1 0 0); /* white */
-  --popover-foreground: oklch(0.216 0.006 56.043); /* stone-900 */
-  --primary: oklch(0.372 0.044 257.287); /* slate-700 #334155 */
-  --primary-foreground: oklch(1 0 0); /* white */
-  --secondary: oklch(0.97 0.001 106.424); /* stone-100 #F5F5F4 */
-  --secondary-foreground: oklch(0.216 0.006 56.043); /* stone-900 */
-  --muted: oklch(0.97 0.001 106.424); /* stone-100 */
-  --muted-foreground: oklch(0.444 0.011 73.639); /* stone-600 #57534E */
-  --accent: oklch(0.97 0.001 106.424); /* stone-100 */
-  --accent-foreground: oklch(0.216 0.006 56.043); /* stone-900 */
-  --destructive: oklch(0.505 0.213 27.518); /* red-700 #B91C1C */
-  --border: oklch(0.923 0.003 48.717); /* stone-200 #E7E5E4 */
-  --input: oklch(0.923 0.003 48.717); /* stone-200 */
-  --ring: oklch(0.372 0.044 257.287); /* slate-700 */
-  --chart-1: oklch(0.87 0.001 106.424); /* stone-200 tint */
-  --chart-2: oklch(0.556 0.008 68); /* stone-500 tint */
-  --chart-3: oklch(0.439 0.01 62); /* stone-600 tint */
-  --chart-4: oklch(0.371 0.008 56); /* stone-700 tint */
-  --chart-5: oklch(0.269 0.006 50); /* stone-800 tint */
+  --base-l: 0.985;
+  --base-c: 0.003;
+  --base-h: 80;
+  --accent-l: 0.37;
+  --accent-c: 0.044;
+  --accent-h: 257;
+  --contrast: 0.85;
+
+  /* Step size for surface elevation (contrast-scaled) */
+  --step: calc(var(--contrast) * 0.022);
+
+  /* Surfaces — step DOWN from near-white */
+  --background: oklch(var(--base-l) var(--base-c) var(--base-h));
+  --card: var(--background);
+  --popover: oklch(1 0 0);
+  --secondary: oklch(
+    calc(var(--base-l) - var(--step)) var(--base-c) var(--base-h)
+  );
+  --muted: var(--secondary);
+  --accent: var(--secondary);
+  --border: oklch(
+    calc(var(--base-l) - var(--step) * 3.2) var(--base-c) var(--base-h)
+  );
+  --input: var(--border);
+
+  /* Text — large jump from base, scaled by contrast */
+  --foreground: oklch(
+    calc(var(--base-l) - var(--contrast) * 0.9) calc(var(--base-c) * 2)
+      var(--base-h)
+  );
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --secondary-foreground: var(--foreground);
+  --accent-foreground: var(--foreground);
+  --muted-foreground: oklch(
+    calc(var(--base-l) - var(--contrast) * 0.64) calc(var(--base-c) * 3)
+      var(--base-h)
+  );
+
+  /* Accent-derived */
+  --primary: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
+  --primary-foreground: oklch(1 0 0);
+  --ring: var(--primary);
+
+  /* Semantic — fixed hues, light-mode calibrated */
+  --destructive: oklch(0.505 0.213 27.5);
+  --success: oklch(0.508 0.118 165.6);
+  --warning: oklch(0.666 0.179 58.3);
+
+  /* Charts — five-step ramp through base lightness */
+  --chart-1: oklch(
+    calc(var(--base-l) - var(--step) * 5) var(--base-c) var(--base-h)
+  );
+  --chart-2: oklch(
+    calc(var(--base-l) - var(--contrast) * 0.5) calc(var(--base-c) * 2)
+      var(--base-h)
+  );
+  --chart-3: oklch(
+    calc(var(--base-l) - var(--contrast) * 0.64) calc(var(--base-c) * 2.5)
+      var(--base-h)
+  );
+  --chart-4: oklch(
+    calc(var(--base-l) - var(--contrast) * 0.72) calc(var(--base-c) * 2)
+      var(--base-h)
+  );
+  --chart-5: oklch(
+    calc(var(--base-l) - var(--contrast) * 0.84) calc(var(--base-c) * 2)
+      var(--base-h)
+  );
+
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0.001 106.423); /* stone-50 */
-  --sidebar-foreground: oklch(0.216 0.006 56.043); /* stone-900 */
-  --sidebar-primary: oklch(0.372 0.044 257.287); /* slate-700 */
-  --sidebar-primary-foreground: oklch(1 0 0); /* white */
-  --sidebar-accent: oklch(0.97 0.001 106.424); /* stone-100 */
-  --sidebar-accent-foreground: oklch(0.216 0.006 56.043); /* stone-900 */
-  --sidebar-border: oklch(0.923 0.003 48.717); /* stone-200 */
-  --sidebar-ring: oklch(0.372 0.044 257.287); /* slate-700 */
-  /* Semantic extras */
-  --success: oklch(0.508 0.118 165.612); /* emerald-700 #047857 */
-  --warning: oklch(0.666 0.179 58.318); /* amber-600  #D97706 */
+
+  /* Sidebar — aliases (no sidebar in current UI, but shadcn expects these) */
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--secondary);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 }
 
-/* Dark mode deferred to v1.5 — placeholder values */
+/* --- Dark theme inputs --- */
 .dark {
-  --background: oklch(0.145 0.003 56.043);
-  --foreground: oklch(0.97 0.001 106.424);
-  --card: oklch(0.205 0.004 56.043);
-  --card-foreground: oklch(0.97 0.001 106.424);
-  --popover: oklch(0.205 0.004 56.043);
-  --popover-foreground: oklch(0.97 0.001 106.424);
-  --primary: oklch(0.923 0.003 48.717);
-  --primary-foreground: oklch(0.216 0.006 56.043);
-  --secondary: oklch(0.269 0.004 56.043);
-  --secondary-foreground: oklch(0.97 0.001 106.424);
-  --muted: oklch(0.269 0.004 56.043);
-  --muted-foreground: oklch(0.71 0.006 68);
-  --accent: oklch(0.269 0.004 56.043);
-  --accent-foreground: oklch(0.97 0.001 106.424);
+  --base-l: 0.13;
+  --base-c: 0.007;
+  --base-h: 265;
+  --accent-l: 0.55;
+  --accent-c: 0.04;
+  --accent-h: 257;
+  --contrast: 0.8;
+
+  --step: calc(var(--contrast) * 0.022);
+
+  /* Surfaces — step UP from near-black */
+  --background: oklch(var(--base-l) var(--base-c) var(--base-h));
+  --card: oklch(
+    calc(var(--base-l) + var(--step) * 3) var(--base-c) var(--base-h)
+  );
+  --popover: var(--card);
+  --secondary: oklch(
+    calc(var(--base-l) + var(--step) * 5.5) var(--base-c) var(--base-h)
+  );
+  --muted: var(--secondary);
+  --accent: var(--secondary);
+  --border: oklch(
+    calc(var(--base-l) + var(--step) * 10) var(--base-c) var(--base-h)
+  );
+  --input: var(--border);
+
+  /* Text — large jump from base */
+  --foreground: oklch(
+    calc(var(--base-l) + var(--contrast) * 0.9) calc(var(--base-c) * 0.8)
+      var(--base-h)
+  );
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --secondary-foreground: var(--foreground);
+  --accent-foreground: var(--foreground);
+  --muted-foreground: oklch(
+    calc(var(--base-l) + var(--contrast) * 0.64) calc(var(--base-c) * 1.5)
+      var(--base-h)
+  );
+
+  /* Accent-derived */
+  --primary: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
+  --primary-foreground: var(--background);
+  --ring: var(--primary);
+
+  /* Semantic — bumped lightness for dark backgrounds */
   --destructive: oklch(0.65 0.19 22);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0.008 68);
-  --chart-1: oklch(0.87 0.001 106.424);
-  --chart-2: oklch(0.556 0.008 68);
-  --chart-3: oklch(0.439 0.01 62);
-  --chart-4: oklch(0.371 0.008 56);
-  --chart-5: oklch(0.269 0.004 56.043);
-  --sidebar: oklch(0.205 0.004 56.043);
-  --sidebar-foreground: oklch(0.97 0.001 106.424);
-  --sidebar-primary: oklch(0.488 0.044 257.287);
-  --sidebar-primary-foreground: oklch(0.97 0.001 106.424);
-  --sidebar-accent: oklch(0.269 0.004 56.043);
-  --sidebar-accent-foreground: oklch(0.97 0.001 106.424);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0.008 68);
-  --success: oklch(0.62 0.118 165.612);
-  --warning: oklch(0.75 0.179 58.318);
+  --success: oklch(0.62 0.118 165.6);
+  --warning: oklch(0.75 0.179 58.3);
+
+  /* Charts — five-step ramp through base lightness */
+  --chart-1: oklch(
+    calc(var(--base-l) + var(--contrast) * 0.9) calc(var(--base-c) * 0.8)
+      var(--base-h)
+  );
+  --chart-2: oklch(
+    calc(var(--base-l) + var(--contrast) * 0.64) calc(var(--base-c) * 1.5)
+      var(--base-h)
+  );
+  --chart-3: oklch(
+    calc(var(--base-l) + var(--contrast) * 0.46) calc(var(--base-c) * 1.2)
+      var(--base-h)
+  );
+  --chart-4: oklch(
+    calc(var(--base-l) + var(--contrast) * 0.31) var(--base-c) var(--base-h)
+  );
+  --chart-5: oklch(
+    calc(var(--base-l) + var(--step) * 5.5) var(--base-c) var(--base-h)
+  );
+
+  /* Sidebar — aliases */
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--foreground);
+  --sidebar-accent: var(--secondary);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 }
 
 @layer base {

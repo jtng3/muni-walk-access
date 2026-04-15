@@ -10,9 +10,15 @@ interface MapViewProps {
   data: GridSchema;
   freqIdx: number;
   walkIdx: number;
+  isDark: boolean;
 }
 
-export default function MapView({ data, freqIdx, walkIdx }: MapViewProps) {
+export default function MapView({
+  data,
+  freqIdx,
+  walkIdx,
+  isDark,
+}: MapViewProps) {
   const [runtimeError, setRuntimeError] = useState(false);
   const handleError = useCallback(() => setRuntimeError(true), []);
 
@@ -27,6 +33,7 @@ export default function MapView({ data, freqIdx, walkIdx }: MapViewProps) {
           data={data}
           freqIdx={freqIdx}
           walkIdx={walkIdx}
+          isDark={isDark}
           onError={handleError}
         />
       </Suspense>

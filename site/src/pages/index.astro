@@ -14,8 +14,13 @@ const config = configRaw as unknown as ConfigSnapshot;
 ---
 
 <BaseLayout title="MUNI Walk Access" description="SF transit walking-distance accessibility analysis">
-  <div id="top" class="max-w-6xl mx-auto px-4 py-8">
+  <!-- Map hero: full-bleed, no container constraints -->
+  <div id="top">
+    <InteractiveView client:only="react" data={grid} />
+  </div>
+
+  <!-- Supporting content below the map -->
+  <div class="max-w-6xl mx-auto px-4 py-8">
     <DataFreshnessBanner config={config} />
-    <InteractiveView client:load data={grid} />
   </div>
 </BaseLayout>

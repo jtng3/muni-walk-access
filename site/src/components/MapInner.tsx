@@ -3,7 +3,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Map as MapGL, Source, Layer } from "react-map-gl/maplibre";
 import { Protocol } from "pmtiles";
-import { layers as pmLayers, LIGHT } from "@protomaps/basemaps";
+import { layers as pmLayers, LIGHT, DARK } from "@protomaps/basemaps";
 import { VIRIDIS_STOPS } from "@/lib/choropleth";
 import type { GridSchema } from "@/lib/types";
 import type {
@@ -13,22 +13,24 @@ import type {
   GeoJSONSourceSpecification,
 } from "maplibre-gl";
 
-// Self-hosted SF PMTiles extract (13 MB, zoom 0–14, bbox -122.525,37.705,-122.355,37.835).
+// Self-hosted PMTiles extract (23 MB, zoom 0–14, SF + bay + Oakland waterfront).
 // Regenerate with:
 //   pmtiles extract https://build.protomaps.com/20251201.pmtiles \
-//     site/public/tiles/sf.pmtiles --bbox="-122.525,37.705,-122.355,37.835"
+//     site/public/tiles/sf.pmtiles --bbox="-122.55,37.69,-122.20,37.85"
 const TILE_URL = "pmtiles:///tiles/sf.pmtiles";
 
-const MAP_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    protomaps: {
-      type: "vector",
-      url: TILE_URL,
+function buildMapStyle(isDark: boolean): StyleSpecification {
+  return {
+    version: 8,
+    sources: {
+      protomaps: {
+        type: "vector",
+        url: TILE_URL,
+      },
     },
-  },
-  layers: pmLayers("protomaps", LIGHT),
-};
+    layers: pmLayers("protomaps", isDark ? DARK : LIGHT),
+  };
+}
 
 const choroplethFill: FillLayerSpecification = {
   id: "neighborhoods-fill",
@@ -58,21 +60,24 @@ const choroplethFill: FillLayerSpecification = {
   },
 };
 
-const choroplethLine: LineLayerSpecification = {
-  id: "neighborhoods-line",
-  type: "line",
-  source: "neighborhoods",
-  paint: {
-    "line-color": "#334155", // slate-700 (--primary)
-    "line-width": 1,
-    "line-opacity": 0.6,
-  },
-};
+function buildChoroplethLine(isDark: boolean): LineLayerSpecification {
+  return {
+    id: "neighborhoods-line",
+    type: "line",
+    source: "neighborhoods",
+    paint: {
+      "line-color": isDark ? "#8b949e" : "#334155",
+      "line-width": 1,
+      "line-opacity": isDark ? 0.4 : 0.6,
+    },
+  };
+}
 
 interface MapInnerProps {
   data: GridSchema;
   freqIdx: number;
   walkIdx: number;
+  isDark: boolean;
   onError?: () => void;
 }
 
@@ -80,9 +85,13 @@ export default function MapInner({
   data,
   freqIdx,
   walkIdx,
+  isDark,
   onError,
 }: MapInnerProps) {
   const loadedRef = useRef(false);
+
+  const mapStyle = useMemo(() => buildMapStyle(isDark), [isDark]);
+  const lineSpec = useMemo(() => buildChoroplethLine(isDark), [isDark]);
   const [baseGeoJSON, setBaseGeoJSON] =
     useState<GeoJSON.FeatureCollection | null>(null);
 
@@ -183,17 +192,17 @@ export default function MapInner({
       onError={handleError}
       initialViewState={{
         bounds: [
-          [-122.525, 37.705],
-          [-122.355, 37.835],
+          [-122.54, 37.695],
+          [-122.3, 37.845],
         ],
-        fitBoundsOptions: { padding: 20 },
+        fitBoundsOptions: { padding: 40 },
       }}
-      mapStyle={MAP_STYLE}
+      mapStyle={mapStyle}
       style={{ width: "100%", height: "100%" }}
     >
       <Source id="neighborhoods" type="geojson" data={sourceData}>
         <Layer {...choroplethFill} />
-        <Layer {...choroplethLine} />
+        <Layer {...lineSpec} />
       </Source>
     </MapGL>
   );

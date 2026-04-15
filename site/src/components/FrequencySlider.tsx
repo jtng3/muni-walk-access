@@ -62,9 +62,6 @@ export default function FrequencySlider({
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">
-        Frequency: what counts as a frequent bus? Drag to change.
-      </p>
     </div>
   );
 }
