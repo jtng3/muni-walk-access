@@ -1,0 +1,48 @@
+---
+import SkipLink from '../components/SkipLink.astro';
+import AnchorNav from '../components/AnchorNav.astro';
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'MUNI Walk Access',
+  description = 'SF transit walking-distance accessibility analysis',
+} = Astro.props;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+  </head>
+  <body>
+    <SkipLink />
+    <AnchorNav />
+    <main id="main-content" tabindex="-1" class="outline-none">
+      <slot />
+    </main>
+    <footer class="border-t border-border py-8 mt-16">
+      <div class="max-w-6xl mx-auto px-4">
+        <p class="text-sm text-muted-foreground">
+          Built by Tang3. Luke Armbruster, collaborator. Data from DataSF and OpenStreetMap.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

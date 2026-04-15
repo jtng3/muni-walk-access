@@ -1,5 +1,5 @@
 ---
-import '../styles/global.css';
+import BaseLayout from '../layouts/BaseLayout.astro';
 import type { GridSchema, ConfigSnapshot } from '../lib/types';
 
 // Pipeline-generated files (gitignored) take precedence; seed fixtures are
@@ -11,18 +11,10 @@ const grid = gridRaw as unknown as GridSchema;
 const config = configRaw as unknown as ConfigSnapshot;
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>MUNI Walk Access</title>
-	</head>
-	<body>
-		<h1>MUNI Walk Access</h1>
-		<p>Data version: <strong>{grid.version}</strong></p>
-		<p>Run ID: <strong>{config.run_id}</strong></p>
-	</body>
-</html>
+<BaseLayout title="MUNI Walk Access" description="SF transit walking-distance accessibility analysis">
+  <div id="top" class="max-w-6xl mx-auto px-4 py-8">
+    <h1>MUNI Walk Access</h1>
+    <p>Data version: <strong>{grid.version}</strong></p>
+    <p>Run ID: <strong>{config.run_id}</strong></p>
+  </div>
+</BaseLayout>
