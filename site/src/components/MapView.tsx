@@ -8,9 +8,11 @@ const LazyMap = lazy(() => import("./MapInner"));
 
 interface MapViewProps {
   data: GridSchema;
+  freqIdx: number;
+  walkIdx: number;
 }
 
-export default function MapView({ data }: MapViewProps) {
+export default function MapView({ data, freqIdx, walkIdx }: MapViewProps) {
   const [runtimeError, setRuntimeError] = useState(false);
   const handleError = useCallback(() => setRuntimeError(true), []);
 
@@ -21,7 +23,12 @@ export default function MapView({ data }: MapViewProps) {
   return (
     <ErrorBoundary fallback={<MapFallback data={data} />}>
       <Suspense fallback={<MapSkeleton data={data} />}>
-        <LazyMap data={data} onError={handleError} />
+        <LazyMap
+          data={data}
+          freqIdx={freqIdx}
+          walkIdx={walkIdx}
+          onError={handleError}
+        />
       </Suspense>
     </ErrorBoundary>
   );

@@ -1,9 +1,8 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import type { GridSchema, ConfigSnapshot } from '../lib/types';
-import Headline from '../components/Headline.astro';
 import DataFreshnessBanner from '../components/DataFreshnessBanner.astro';
-import MapView from '../components/MapView';
+import InteractiveView from '../components/InteractiveView';
 
 // Pipeline-generated files (gitignored) take precedence; seed fixtures are
 // committed fallbacks for fresh-clone or CI builds (copied by prebuild script).
@@ -12,20 +11,11 @@ import configRaw from '../data/config_snapshot.json';
 
 const grid = gridRaw as unknown as GridSchema;
 const config = configRaw as unknown as ConfigSnapshot;
-const defaultPct =
-  grid.city_wide.pct_within[grid.defaults.frequency_idx][grid.defaults.walking_idx];
 ---
 
 <BaseLayout title="MUNI Walk Access" description="SF transit walking-distance accessibility analysis">
   <div id="top" class="max-w-6xl mx-auto px-4 py-8">
-    <Headline
-      pct={defaultPct}
-      frequencyMin={grid.axes.frequency_minutes[grid.defaults.frequency_idx]}
-      walkingMin={grid.axes.walking_minutes[grid.defaults.walking_idx]}
-    />
     <DataFreshnessBanner config={config} />
-    <div class="mt-6 h-[60vh] min-h-[400px] rounded-lg overflow-hidden">
-      <MapView client:load data={grid} />
-    </div>
+    <InteractiveView client:load data={grid} />
   </div>
 </BaseLayout>

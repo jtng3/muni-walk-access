@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Map, Source, Layer } from "react-map-gl/maplibre";
+import { Map as MapGL, Source, Layer } from "react-map-gl/maplibre";
 import { Protocol } from "pmtiles";
 import { layers as pmLayers, LIGHT } from "@protomaps/basemaps";
 import { VIRIDIS_STOPS } from "@/lib/choropleth";
@@ -10,6 +10,7 @@ import type {
   FillLayerSpecification,
   LineLayerSpecification,
   StyleSpecification,
+  GeoJSONSourceSpecification,
 } from "maplibre-gl";
 
 // Self-hosted SF PMTiles extract (13 MB, zoom 0–14, bbox -122.525,37.705,-122.355,37.835).
@@ -70,11 +71,89 @@ const choroplethLine: LineLayerSpecification = {
 
 interface MapInnerProps {
   data: GridSchema;
+  freqIdx: number;
+  walkIdx: number;
   onError?: () => void;
 }
 
-export default function MapInner({ onError }: MapInnerProps) {
+export default function MapInner({
+  data,
+  freqIdx,
+  walkIdx,
+  onError,
+}: MapInnerProps) {
   const loadedRef = useRef(false);
+  const [baseGeoJSON, setBaseGeoJSON] =
+    useState<GeoJSON.FeatureCollection | null>(null);
+
+  // Build id→index map once for O(1) neighborhood lookups
+  const idxById = useMemo(
+    () => new Map(data.neighborhoods.map((n, i) => [n.id, i])),
+    [data.neighborhoods],
+  );
+
+  // Fetch GeoJSON once on mount, cache the geometry
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/data/neighborhoods.geojson")
+      .then((r) => {
+        if (!r.ok) throw new Error(`GeoJSON fetch failed: ${r.status}`);
+        return r.json();
+      })
+      .then((fc: GeoJSON.FeatureCollection) => {
+        if (!cancelled) setBaseGeoJSON(fc);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch GeoJSON:", err);
+        if (!cancelled) onError?.();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- onError is stable via useCallback in parent
+
+  // rAF-throttled indices — only apply the latest values on each animation frame
+  const latestRef = useRef({ freqIdx, walkIdx });
+  latestRef.current = { freqIdx, walkIdx };
+  const [rendered, setRendered] = useState({ freqIdx, walkIdx });
+  const rafRef = useRef(0);
+
+  useEffect(() => {
+    rafRef.current = requestAnimationFrame(() => {
+      setRendered({ ...latestRef.current });
+    });
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [freqIdx, walkIdx]);
+
+  // Produce updated FeatureCollection with recolored pct_at_defaults
+  const sourceData = useMemo<
+    GeoJSON.FeatureCollection | GeoJSONSourceSpecification["data"]
+  >(() => {
+    if (!baseGeoJSON) return "/data/neighborhoods.geojson";
+    return {
+      ...baseGeoJSON,
+      features: baseGeoJSON.features.map((f) => {
+        const idx = idxById.get(f.properties?.id);
+        if (idx === undefined) return f;
+        return {
+          ...f,
+          properties: {
+            ...f.properties,
+            pct_at_defaults:
+              data.neighborhoods[idx].pct_within[rendered.freqIdx][
+                rendered.walkIdx
+              ],
+          },
+        };
+      }),
+    };
+  }, [
+    baseGeoJSON,
+    rendered.freqIdx,
+    rendered.walkIdx,
+    data.neighborhoods,
+    idxById,
+  ]);
 
   useEffect(() => {
     const protocol = new Protocol();
@@ -84,18 +163,10 @@ export default function MapInner({ onError }: MapInnerProps) {
     };
   }, []);
 
-  // After the map's style and visible tiles render, mark it as loaded.
-  // Errors that arrive *after* this point are non-critical (e.g. a tile at
-  // an extreme zoom level outside the PMTiles extract range).
   const handleLoad = useCallback(() => {
     loadedRef.current = true;
   }, []);
 
-  // MapLibre fires `error` events for network failures (missing PMTiles,
-  // GeoJSON 404, etc.).  react-map-gl only console.errors them by default,
-  // so without this handler the user sees a blank map with no explanation.
-  // We only escalate errors that happen *before* the map loads — those
-  // indicate a fundamental problem (missing data files).
   const handleError = useCallback(
     (e: { error: Error }) => {
       console.error("MapLibre error:", e.error);
@@ -107,7 +178,7 @@ export default function MapInner({ onError }: MapInnerProps) {
   );
 
   return (
-    <Map
+    <MapGL
       onLoad={handleLoad}
       onError={handleError}
       initialViewState={{
@@ -120,14 +191,10 @@ export default function MapInner({ onError }: MapInnerProps) {
       mapStyle={MAP_STYLE}
       style={{ width: "100%", height: "100%" }}
     >
-      <Source
-        id="neighborhoods"
-        type="geojson"
-        data="/data/neighborhoods.geojson"
-      >
+      <Source id="neighborhoods" type="geojson" data={sourceData}>
         <Layer {...choroplethFill} />
         <Layer {...choroplethLine} />
       </Source>
-    </Map>
+    </MapGL>
   );
 }
