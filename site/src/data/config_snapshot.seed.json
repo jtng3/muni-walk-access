@@ -1,0 +1,16 @@
+{
+  "_comment": "SEED FIXTURE -- will be overwritten by the first real pipeline run (make pipeline-full)",
+  "run_id": "seed-fixture",
+  "code_version": {
+    "git_sha": "0000000",
+    "git_tag": "seed"
+  },
+  "config_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "data_versions": {
+    "gtfs_feed_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "osm_extract_date": "20260101",
+    "datasf_timestamps": {}
+  },
+  "config_values": {},
+  "upstream_fallback": false
+}

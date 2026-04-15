@@ -1,5 +1,14 @@
 ---
 import '../styles/global.css';
+import type { GridSchema, ConfigSnapshot } from '../lib/types';
+
+// Pipeline-generated files (gitignored) take precedence; seed fixtures are
+// committed fallbacks for fresh-clone or CI builds (copied by prebuild script).
+import gridRaw from '../data/grid.json';
+import configRaw from '../data/config_snapshot.json';
+
+const grid = gridRaw as unknown as GridSchema;
+const config = configRaw as unknown as ConfigSnapshot;
 ---
 
 <html lang="en">
@@ -9,9 +18,11 @@ import '../styles/global.css';
 		<link rel="icon" href="/favicon.ico" />
 		<meta name="viewport" content="width=device-width" />
 		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
+		<title>MUNI Walk Access</title>
 	</head>
 	<body>
-		<h1>Astro</h1>
+		<h1>MUNI Walk Access</h1>
+		<p>Data version: <strong>{grid.version}</strong></p>
+		<p>Run ID: <strong>{config.run_id}</strong></p>
 	</body>
 </html>

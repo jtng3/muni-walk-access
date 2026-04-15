@@ -1,0 +1,30 @@
+{
+  "_comment": "SEED FIXTURE -- will be overwritten by the first real pipeline run (make pipeline-full)",
+  "version": "1.0.0",
+  "run_id": "seed-fixture",
+  "config_snapshot_url": "./config_snapshot.json",
+  "axes": {
+    "frequency_minutes": [10],
+    "walking_minutes": [5]
+  },
+  "defaults": {
+    "frequency_idx": 0,
+    "walking_idx": 0
+  },
+  "city_wide": {
+    "pct_within": [[0.42]]
+  },
+  "neighborhoods": [
+    {
+      "id": "mission",
+      "name": "Mission",
+      "population": 45000,
+      "lens_flags": {
+        "analysis_neighborhoods": true,
+        "ej_communities": true,
+        "equity_strategy": false
+      },
+      "pct_within": [[0.51]]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "_comment": "SEED FIXTURE -- will be overwritten by the first real pipeline run (make pipeline-full)",
+  "run_id": "seed-fixture",
+  "ground_truth": {
+    "sample_size": 20,
+    "within_10pct": 0.9,
+    "within_20pct": 0.95,
+    "median_error_pct": 0.05,
+    "worst_case_pct": 0.15
+  },
+  "comparison_tool": null
+}

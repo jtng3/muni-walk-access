@@ -9,7 +9,13 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   integrations: [react()],
 
+  // Path alias required by shadcn/ui
   vite: {
     plugins: [tailwindcss()],
+    resolve: {
+      alias: {
+        "@": new URL("./src", import.meta.url).pathname,
+      },
+    },
   },
 });
