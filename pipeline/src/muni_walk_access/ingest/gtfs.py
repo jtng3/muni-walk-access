@@ -17,6 +17,10 @@ from muni_walk_access.ingest.datasf import set_upstream_fallback
 
 logger = logging.getLogger(__name__)
 
+# TODO: Both URLs are broken as of 2026-04-15. URL[0] returns 400 (CSV endpoint,
+# not a GTFS zip). URL[1] times out intermittently. Pipeline falls back to cached
+# zip (~75s wasted on timeouts). Fix URLs or add --emit-only CLI flag to skip.
+# Canonical download page: https://www.sfmta.com/reports/gtfs-transit-data
 GTFS_URLS = [
     "https://data.sfgov.org/api/views/2qyp-77cq/rows.csv?accessType=DOWNLOAD",
     "https://gtfs.sfmta.com/transitdata/google_transit.zip",

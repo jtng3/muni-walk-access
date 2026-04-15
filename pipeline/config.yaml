@@ -12,7 +12,7 @@ frequency:
 grid:
   frequency_threshold_min: [4, 6, 8, 10, 12, 15, 20]
   walking_minutes: [3, 5, 7, 10, 12, 15]
-  defaults: { frequency_min: 10, walking_min: 5 }
+  defaults: { frequency_min: 6, walking_min: 3 }
 
 walking:
   pace_min_per_mile: 20.0
