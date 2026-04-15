@@ -38,6 +38,7 @@ site/src/data/*.json
 !site/src/data/*.seed.json
 site/public/data/
 site/public/downloads/
+site/public/tiles/*.pmtiles
 
 # === Fallback globals (catch-all for future dirs) ===
 .env

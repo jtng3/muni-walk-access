@@ -3,6 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import type { GridSchema, ConfigSnapshot } from '../lib/types';
 import Headline from '../components/Headline.astro';
 import DataFreshnessBanner from '../components/DataFreshnessBanner.astro';
+import MapView from '../components/MapView';
 
 // Pipeline-generated files (gitignored) take precedence; seed fixtures are
 // committed fallbacks for fresh-clone or CI builds (copied by prebuild script).
@@ -19,5 +20,8 @@ const defaultPct =
   <div id="top" class="max-w-6xl mx-auto px-4 py-8">
     <Headline pct={defaultPct} />
     <DataFreshnessBanner config={config} />
+    <div class="mt-6 h-[60vh] min-h-[400px] rounded-lg overflow-hidden">
+      <MapView client:load data={grid} />
+    </div>
   </div>
 </BaseLayout>
