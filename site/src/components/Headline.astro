@@ -1,0 +1,26 @@
+---
+interface Props {
+  pct: number;
+}
+
+const { pct } = Astro.props;
+if (typeof pct !== 'number' || Number.isNaN(pct))
+  throw new Error('Headline: pct prop must be a valid number');
+
+const formattedPct = Math.round(pct * 100);
+---
+
+<div class="space-y-4">
+  <h1>
+    <span class="block text-5xl font-semibold text-foreground">{formattedPct}%</span>
+    <span class="mt-2 block text-xl text-foreground"
+      >of SF residents live within a 1/4 mile / 5-minute walk of a stop with a bus every 10
+      minutes or better.</span
+    >
+  </h1>
+  <p class="text-lg text-muted-foreground">
+    This figure reflects residents within a 5-minute walk (1/4 mile) of a Muni stop served by a
+    bus at least every 10 minutes during the AM peak. These are specific assumptions about
+    frequency and distance — not universal measures of transit access.
+  </p>
+</div>
