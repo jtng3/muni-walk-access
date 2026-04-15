@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import logging
-import platform
+import subprocess
 import sys
 import time
 import tracemalloc
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 import polars as pl
@@ -17,10 +18,19 @@ import yaml
 from pydantic import ValidationError
 
 from muni_walk_access.config import Config, load_config
+from muni_walk_access.emit.config_snapshot import write_config_snapshot
+from muni_walk_access.emit.docs import _write_lens_verification_doc, _write_timing_doc
+from muni_walk_access.emit.downloads import write_downloads
+from muni_walk_access.emit.geojson import write_neighborhoods_geojson
+from muni_walk_access.emit.grid_json import write_grid_json
 from muni_walk_access.emit.schemas import CityWide, NeighborhoodGrid
 from muni_walk_access.exceptions import IngestError, NetworkBuildError
 from muni_walk_access.ingest.cache import CacheManager
-from muni_walk_access.ingest.datasf import fetch_residential_addresses
+from muni_walk_access.ingest.datasf import (
+    fetch_residential_addresses,
+    get_datasf_timestamps,
+    was_fallback_used,
+)
 from muni_walk_access.ingest.gtfs import fetch_gtfs
 from muni_walk_access.network.build import build_network
 from muni_walk_access.route.nearest_stop import route_nearest_stops
@@ -28,134 +38,6 @@ from muni_walk_access.stratify.grid import compute_grid
 from muni_walk_access.stratify.lens import aggregate_to_lenses, compute_lens_flags
 
 logger = logging.getLogger(__name__)
-
-# Absolute path to pipeline/docs/ — stable regardless of cwd
-_DOCS_DIR = Path(__file__).parent.parent.parent / "docs"
-
-
-def _write_timing_doc(
-    *,
-    t_network: float,
-    t_addresses: float,
-    t_gtfs: float,
-    t_routing: float,
-    t_lens: float,
-    t_grid: float,
-    t_total: float,
-    peak_mb: float,
-    address_count: int,
-    stop_count: int,
-    result_count: int,
-    sample_mode: bool,
-    sample_n: int | None,
-) -> None:
-    """Write timing spike markdown to pipeline/docs/timing-spike-{date}.md."""
-    today = date.today().strftime("%Y-%m-%d")
-    t_min = t_total / 60.0
-
-    if t_min < 20.0:
-        verdict = f"PASS: {t_min:.1f} min — within gate threshold (< 20 min)"
-    elif t_min < 25.0:
-        verdict = (
-            f"CAUTION: {t_min:.1f} min — within budget but approaching"
-            " limit (20–25 min)"
-        )
-    else:
-        verdict = (
-            f"BLOCKED: {t_min:.1f} min — exceeds 25-min threshold; "
-            "open caching-strategy-revisit issue"
-        )
-
-    mode_str = f"sample (n={sample_n})" if sample_mode else "full"
-    py_ver = sys.version.split()[0]
-
-    content = f"""# Timing Spike — {today}
-
-## Machine Info
-
-- Platform: {platform.machine()}
-- OS: {platform.system()}
-- Python: {py_ver}
-
-## Run Mode
-
-- Mode: {mode_str}
-- Addresses: {address_count:,}
-- Stops: {stop_count:,}
-- Routing results: {result_count:,}
-
-## Stage Timing
-
-| Stage | Time (s) | Time (min) |
-|---|---|---|
-| network_build | {t_network:.1f} | {t_network / 60:.2f} |
-| address_fetch | {t_addresses:.1f} | {t_addresses / 60:.2f} |
-| gtfs_fetch | {t_gtfs:.1f} | {t_gtfs / 60:.2f} |
-| routing | {t_routing:.1f} | {t_routing / 60:.2f} |
-| stratify_lens | {t_lens:.1f} | {t_lens / 60:.2f} |
-| stratify_grid | {t_grid:.1f} | {t_grid / 60:.2f} |
-| **Total** | **{t_total:.1f}** | **{t_total / 60:.2f}** |
-
-## Memory
-
-- Peak Python memory (tracemalloc): {peak_mb:.1f} MB
-- Note: tracemalloc measures Python allocations only; C extensions (pandana, numpy) \
-allocate outside Python's heap.
-
-## Budget Projection
-
-- Total time: {t_min:.2f} min
-- Gate threshold: 20 min (within 30-min GHA budget)
-- **Verdict: {verdict}**
-"""
-
-    _DOCS_DIR.mkdir(parents=True, exist_ok=True)
-    doc_path = _DOCS_DIR / f"timing-spike-{today}.md"
-    doc_path.write_text(content)
-    logger.info("Timing spike document: %s", doc_path)
-
-
-def _write_lens_verification_doc(
-    lens_flags_data: list[dict[str, object]],
-) -> None:
-    """Write lens verification markdown to pipeline/docs/lens-verification.md."""
-    lines = [
-        "# Lens Verification — Equity Flag Audit",
-        "",
-        "| Neighbourhood | analysis_neighborhoods | ej_communities "
-        "| equity_strategy | flag_count |",
-        "|---|---|---|---|---|",
-    ]
-    sorted_data = sorted(
-        lens_flags_data, key=lambda r: str(r.get("neighborhood_name", ""))
-    )
-    for row in sorted_data:
-        flags: dict[str, object] = row.get("lens_flags", {})  # type: ignore[assignment]
-        lines.append(
-            f"| {row['neighborhood_name']} "
-            f"| {flags.get('analysis_neighborhoods', '')} "
-            f"| {flags.get('ej_communities', '')} "
-            f"| {flags.get('equity_strategy', '')} "
-            f"| {row.get('lens_flag_count', '')} |"
-        )
-    lines.extend(
-        [
-            "",
-            "## Notes",
-            "",
-            "- EJ Communities filtered to CalEnviroScreen score >= 21 "
-            "(top 1/3 of cumulative burden).",
-            "- Equity Strategy polygons may not align exactly with Analysis "
-            "Neighbourhood boundaries; edge-case addresses can cause a "
-            "neighbourhood to inherit an equity flag from an adjacent polygon.",
-            "- In sample mode, per-neighbourhood counts are small; a full "
-            "run gives more representative flags.",
-        ]
-    )
-    _DOCS_DIR.mkdir(parents=True, exist_ok=True)
-    doc_path = _DOCS_DIR / "lens-verification.md"
-    doc_path.write_text("\n".join(lines))
-    logger.info("Lens verification document: %s", doc_path)
 
 
 def _run_stratify(
@@ -287,13 +169,89 @@ def _print_summary(
     print(f"\nPeak Python memory: {peak_mb:.1f} MB")
 
 
-def _run_pipeline(config: Config) -> None:
+def _get_git_provenance(config_path: Path) -> tuple[str, str, str]:
+    """Return (config_hash, git_sha, git_tag) for run provenance."""
+    config_hash = hashlib.sha256(config_path.read_bytes()).hexdigest()
+    try:
+        git_sha = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+    except Exception:
+        git_sha = "unknown"
+    try:
+        git_tag = (
+            subprocess.check_output(["git", "describe", "--tags", "--always"])
+            .decode()
+            .strip()
+        )
+    except Exception:
+        git_tag = "unknown"
+    return config_hash, git_sha, git_tag
+
+
+def _run_emit(
+    neighborhoods: list[NeighborhoodGrid],
+    city_wide: CityWide,
+    stratified: pl.DataFrame,
+    config: Config,
+    run_id: str,
+    git_sha: str,
+    git_tag: str,
+    config_hash: str,
+    gtfs_sha256: str,
+    osm_date: str,
+    datasf_timestamps: dict[str, str],
+    upstream_fallback: bool,
+    output_dir: Path,
+) -> float:
+    """Run emit stages: grid_json, config_snapshot, geojson, downloads.
+
+    Returns elapsed time in seconds.
+    """
+    logger.info("Stage emit: starting")
+    t0 = time.perf_counter()
+
+    write_grid_json(neighborhoods, city_wide, config, run_id, output_dir)
+    config_snapshot_path = write_config_snapshot(
+        run_id=run_id,
+        git_sha=git_sha,
+        git_tag=git_tag,
+        config_hash=config_hash,
+        gtfs_sha256=gtfs_sha256,
+        osm_date=osm_date,
+        datasf_timestamps=datasf_timestamps,
+        upstream_fallback=upstream_fallback,
+        config_values=config.model_dump(mode="json"),
+        output_dir=output_dir,
+    )
+    geojson_path = write_neighborhoods_geojson(neighborhoods, config, output_dir)
+    write_downloads(
+        neighborhoods,
+        stratified,
+        config_snapshot_path,
+        geojson_path,
+        run_id,
+        output_dir,
+        config,
+    )
+
+    t_emit = time.perf_counter() - t0
+    logger.info("Stage emit: %.1fs", t_emit)
+    return t_emit
+
+
+def _run_pipeline(
+    config: Config,
+    config_path: Path,
+    skip_validation: bool,
+) -> None:
     """Execute all pipeline stages with timing, memory, and caching."""
+    run_id = datetime.now(timezone.utc).isoformat()
+    config_hash, git_sha, git_tag = _get_git_provenance(config_path)
+
     tracemalloc.start()
     t_start = time.perf_counter()
 
     t0 = time.perf_counter()
-    net, _osm_date = build_network(config)
+    net, osm_date = build_network(config)
     t_network = time.perf_counter() - t0
     logger.info("Stage network_build: %.1fs", t_network)
 
@@ -303,7 +261,7 @@ def _run_pipeline(config: Config) -> None:
     logger.info("Stage address_fetch: %.1fs", t_addresses)
 
     t0 = time.perf_counter()
-    stops_df, _gtfs_sha256 = fetch_gtfs(config)
+    stops_df, gtfs_sha256 = fetch_gtfs(config)
     t_gtfs = time.perf_counter() - t0
     logger.info("Stage gtfs_fetch: %.1fs", t_gtfs)
 
@@ -330,9 +288,35 @@ def _run_pipeline(config: Config) -> None:
     cache.put("routing", "routing-result", buf.getvalue(), "parquet")
 
     # Stratify stages (lens + grid)
-    _strat, _flags, neighborhoods, city_wide, t_lens, t_grid = _run_stratify(
+    stratified, _flags, neighborhoods, city_wide, t_lens, t_grid = _run_stratify(
         result, stops_df, config
     )
+
+    # Collect provenance after stratify (boundary datasets are fetched there)
+    datasf_timestamps = get_datasf_timestamps()
+    upstream_fallback = was_fallback_used()
+
+    if skip_validation:
+        logger.info("Validation skipped (--skip-validation)")
+
+    # Emit stage
+    output_dir = Path(__file__).parent.parent.parent.parent
+    t_emit = _run_emit(
+        neighborhoods,
+        city_wide,
+        stratified,
+        config,
+        run_id,
+        git_sha,
+        git_tag,
+        config_hash,
+        gtfs_sha256,
+        osm_date,
+        datasf_timestamps,
+        upstream_fallback,
+        output_dir,
+    )
+
     t_total = time.perf_counter() - t_start
     logger.info("Total pipeline time: %.1fs", t_total)
 
@@ -343,6 +327,7 @@ def _run_pipeline(config: Config) -> None:
         t_routing=t_routing,
         t_lens=t_lens,
         t_grid=t_grid,
+        t_emit=t_emit,
         t_total=t_total,
         peak_mb=peak_mb,
         address_count=len(addresses),
@@ -399,13 +384,23 @@ def main() -> None:
         metavar="PATH",
         help="Path to config.yaml (default: config.yaml).",
     )
+    parser.add_argument(
+        "--skip-validation",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip the validation gate and proceed directly to emit. "
+            "Use before ground-truth fixture is available."
+        ),
+    )
     args = parser.parse_args()
 
     if args.sample is not None and args.sample <= 0:
         parser.error("--sample must be a positive integer")
 
     try:
-        config = load_config(Path(args.config))
+        config_path = Path(args.config)
+        config = load_config(config_path)
 
         if args.sample is not None:
             config = config.model_copy(
@@ -414,7 +409,9 @@ def main() -> None:
                 }
             )
 
-        _run_pipeline(config)
+        _run_pipeline(
+            config, config_path=config_path, skip_validation=args.skip_validation
+        )
 
     except ValidationError as exc:
         print(f"Config validation failed:\n{exc}", file=sys.stderr)

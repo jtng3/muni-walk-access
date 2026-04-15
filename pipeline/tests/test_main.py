@@ -136,6 +136,7 @@ class TestMainOrchestration:
                 "muni_walk_access.__main__._run_stratify",
                 return_value=_make_mock_stratify_return(mock_result),
             ),
+            patch("muni_walk_access.__main__._run_emit", return_value=0.1),
         ):
             main()  # must not raise
 
@@ -178,6 +179,7 @@ class TestMainOrchestration:
                 "muni_walk_access.__main__._run_stratify",
                 return_value=_make_mock_stratify_return(mock_result),
             ) as m_strat,
+            patch("muni_walk_access.__main__._run_emit", return_value=0.1) as m_emit,
         ):
             main()
 
@@ -186,6 +188,7 @@ class TestMainOrchestration:
         m_gtfs.assert_called_once()
         m_route.assert_called_once()
         m_strat.assert_called_once()
+        m_emit.assert_called_once()
 
     def test_routing_result_cached_as_parquet(
         self,
@@ -224,6 +227,7 @@ class TestMainOrchestration:
                 "muni_walk_access.__main__._run_stratify",
                 return_value=_make_mock_stratify_return(mock_result),
             ),
+            patch("muni_walk_access.__main__._run_emit", return_value=0.1),
         ):
             main()
 
