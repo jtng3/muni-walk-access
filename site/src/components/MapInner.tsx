@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Map, Source, Layer } from "react-map-gl/maplibre";
@@ -70,9 +70,12 @@ const choroplethLine: LineLayerSpecification = {
 
 interface MapInnerProps {
   data: GridSchema;
+  onError?: () => void;
 }
 
-export default function MapInner(_props: MapInnerProps) {
+export default function MapInner({ onError }: MapInnerProps) {
+  const loadedRef = useRef(false);
+
   useEffect(() => {
     const protocol = new Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
@@ -81,8 +84,32 @@ export default function MapInner(_props: MapInnerProps) {
     };
   }, []);
 
+  // After the map's style and visible tiles render, mark it as loaded.
+  // Errors that arrive *after* this point are non-critical (e.g. a tile at
+  // an extreme zoom level outside the PMTiles extract range).
+  const handleLoad = useCallback(() => {
+    loadedRef.current = true;
+  }, []);
+
+  // MapLibre fires `error` events for network failures (missing PMTiles,
+  // GeoJSON 404, etc.).  react-map-gl only console.errors them by default,
+  // so without this handler the user sees a blank map with no explanation.
+  // We only escalate errors that happen *before* the map loads — those
+  // indicate a fundamental problem (missing data files).
+  const handleError = useCallback(
+    (e: { error: Error }) => {
+      console.error("MapLibre error:", e.error);
+      if (!loadedRef.current) {
+        onError?.();
+      }
+    },
+    [onError],
+  );
+
   return (
     <Map
+      onLoad={handleLoad}
+      onError={handleError}
       initialViewState={{
         bounds: [
           [-122.525, 37.705],

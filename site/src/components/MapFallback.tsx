@@ -10,7 +10,7 @@ interface MapFallbackProps {
 
 export default function MapFallback({ data }: MapFallbackProps) {
   return (
-    <div className="flex h-full w-full flex-col rounded-lg bg-muted p-6">
+    <div className="flex h-full w-full flex-col overflow-y-auto rounded-lg bg-muted p-6">
       <p className="text-muted-foreground">
         Map failed to load. Try refreshing. If this persists, please{" "}
         <a

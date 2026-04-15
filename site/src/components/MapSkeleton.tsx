@@ -7,7 +7,7 @@ interface MapSkeletonProps {
 
 export default function MapSkeleton({ data }: MapSkeletonProps) {
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full overflow-y-auto">
       <div className="h-[70%] animate-pulse rounded-lg bg-muted" />
       <NeighborhoodNameList data={data} />
     </div>

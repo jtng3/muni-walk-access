@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState, useCallback } from "react";
 import { ErrorBoundary } from "@/lib/ErrorBoundary";
 import MapSkeleton from "./MapSkeleton";
 import MapFallback from "./MapFallback";
@@ -11,10 +11,17 @@ interface MapViewProps {
 }
 
 export default function MapView({ data }: MapViewProps) {
+  const [runtimeError, setRuntimeError] = useState(false);
+  const handleError = useCallback(() => setRuntimeError(true), []);
+
+  if (runtimeError) {
+    return <MapFallback data={data} />;
+  }
+
   return (
     <ErrorBoundary fallback={<MapFallback data={data} />}>
       <Suspense fallback={<MapSkeleton data={data} />}>
-        <LazyMap data={data} />
+        <LazyMap data={data} onError={handleError} />
       </Suspense>
     </ErrorBoundary>
   );
