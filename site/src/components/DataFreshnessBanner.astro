@@ -1,0 +1,21 @@
+---
+import type { ConfigSnapshot } from '../lib/types';
+
+interface Props {
+  config: ConfigSnapshot;
+}
+
+const { config } = Astro.props;
+if (!config || typeof config.run_id !== 'string')
+  throw new Error('DataFreshnessBanner: config prop must include a valid run_id');
+
+const runDate = new Date(config.run_id);
+const formattedDate = isNaN(runDate.getTime())
+  ? '(development build)'
+  : runDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+---
+
+<p class="text-sm text-muted-foreground">
+  Based on SFMTA's GTFS feed as of {formattedDate} — and yes, this is interactive. Drag the
+  sliders to change what "frequent" and "reasonable walk" mean.
+</p>

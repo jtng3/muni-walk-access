@@ -1,13 +1,16 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import type { GridSchema } from '../lib/types';
+import type { GridSchema, ConfigSnapshot } from '../lib/types';
 import Headline from '../components/Headline.astro';
+import DataFreshnessBanner from '../components/DataFreshnessBanner.astro';
 
 // Pipeline-generated files (gitignored) take precedence; seed fixtures are
 // committed fallbacks for fresh-clone or CI builds (copied by prebuild script).
 import gridRaw from '../data/grid.json';
+import configRaw from '../data/config_snapshot.json';
 
 const grid = gridRaw as unknown as GridSchema;
+const config = configRaw as unknown as ConfigSnapshot;
 const defaultPct =
   grid.city_wide.pct_within[grid.defaults.frequency_idx][grid.defaults.walking_idx];
 ---
@@ -15,5 +18,6 @@ const defaultPct =
 <BaseLayout title="MUNI Walk Access" description="SF transit walking-distance accessibility analysis">
   <div id="top" class="max-w-6xl mx-auto px-4 py-8">
     <Headline pct={defaultPct} />
+    <DataFreshnessBanner config={config} />
   </div>
 </BaseLayout>
