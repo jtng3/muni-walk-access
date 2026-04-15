@@ -3,6 +3,7 @@ import { ErrorBoundary } from "@/lib/ErrorBoundary";
 import MapSkeleton from "./MapSkeleton";
 import MapFallback from "./MapFallback";
 import type { GridSchema } from "@/lib/types";
+import type { DevFlags } from "./DevOverlay";
 
 const LazyMap = lazy(() => import("./MapInner"));
 
@@ -11,6 +12,7 @@ interface MapViewProps {
   freqIdx: number;
   walkIdx: number;
   isDark: boolean;
+  devFlags: DevFlags;
 }
 
 export default function MapView({
@@ -18,6 +20,7 @@ export default function MapView({
   freqIdx,
   walkIdx,
   isDark,
+  devFlags,
 }: MapViewProps) {
   const [runtimeError, setRuntimeError] = useState(false);
   const handleError = useCallback(() => setRuntimeError(true), []);
@@ -34,6 +37,7 @@ export default function MapView({
           freqIdx={freqIdx}
           walkIdx={walkIdx}
           isDark={isDark}
+          devFlags={devFlags}
           onError={handleError}
         />
       </Suspense>

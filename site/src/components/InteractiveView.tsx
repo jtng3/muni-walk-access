@@ -1,9 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useUrlState } from "@/lib/useUrlState";
 import { useTheme } from "@/lib/useTheme";
 import type { GridSchema } from "@/lib/types";
 import Controls from "./Controls";
 import MapView from "./MapView";
+import DevOverlay, { DEFAULT_DEV_FLAGS } from "./DevOverlay";
+import type { DevFlags } from "./DevOverlay";
 
 interface InteractiveViewProps {
   data: GridSchema;
@@ -28,6 +30,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
   );
   const [theme, toggleTheme] = useTheme();
   const isDark = theme === "dark";
+  const [devFlags, setDevFlags] = useState<DevFlags>(DEFAULT_DEV_FLAGS);
 
   const pct = data.city_wide.pct_within[freqIdx][walkIdx];
   const freqMin = data.axes.frequency_minutes[freqIdx];
@@ -41,6 +44,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
           freqIdx={freqIdx}
           walkIdx={walkIdx}
           isDark={isDark}
+          devFlags={devFlags}
         />
       </div>
       <Controls
@@ -57,6 +61,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
         walkMin={walkMin}
         totalAddresses={totalAddresses}
       />
+      <DevOverlay flags={devFlags} onChange={setDevFlags} />
     </div>
   );
 }

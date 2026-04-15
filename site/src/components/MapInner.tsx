@@ -12,6 +12,7 @@ import type {
   StyleSpecification,
   GeoJSONSourceSpecification,
 } from "maplibre-gl";
+import type { DevFlags } from "./DevOverlay";
 
 // Self-hosted PMTiles extract (23 MB, zoom 0–14, SF + bay + Oakland waterfront).
 // Regenerate with:
@@ -19,56 +20,142 @@ import type {
 //     site/public/tiles/sf.pmtiles --bbox="-122.55,37.69,-122.20,37.85"
 const TILE_URL = "pmtiles:///tiles/sf.pmtiles";
 
-function buildMapStyle(isDark: boolean): StyleSpecification {
-  return {
+// AWS Open Data terrain tiles — free, no API key, CORS-enabled.
+const TERRAIN_URL =
+  "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
+
+function buildMapStyle(isDark: boolean, flags: DevFlags): StyleSpecification {
+  const baseLayers = pmLayers("protomaps", isDark ? DARK : LIGHT).filter((l) =>
+    flags.buildings3d ? l.id !== "buildings" : true,
+  );
+
+  const extraLayers: any[] = [];
+
+  if (flags.buildings3d) {
+    extraLayers.push({
+      id: "buildings-3d",
+      type: "fill-extrusion",
+      source: "protomaps",
+      "source-layer": "buildings",
+      filter: ["in", "kind", "building", "building_part"],
+      minzoom: 13,
+      paint: {
+        "fill-extrusion-color": isDark ? "#1e2430" : "#d9d5cf",
+        "fill-extrusion-height": ["coalesce", ["get", "height"], 8],
+        "fill-extrusion-base": ["coalesce", ["get", "min_height"], 0],
+        "fill-extrusion-opacity": isDark ? 0.7 : 0.5,
+        "fill-extrusion-vertical-gradient": true, // lighter at top, darker at base
+      },
+    });
+  }
+
+  const style: any = {
     version: 8,
     sources: {
-      protomaps: {
-        type: "vector",
-        url: TILE_URL,
-      },
+      protomaps: { type: "vector", url: TILE_URL },
+      ...(flags.terrain && {
+        terrain: {
+          type: "raster-dem",
+          tiles: [TERRAIN_URL],
+          tileSize: 256,
+          encoding: "terrarium",
+        },
+      }),
     },
-    layers: pmLayers("protomaps", isDark ? DARK : LIGHT),
+    layers: [...baseLayers, ...extraLayers],
+  };
+
+  if (flags.terrain) {
+    style.terrain = { source: "terrain", exaggeration: 1.5 };
+  }
+
+  // Directional light — boost intensity to counteract terrain shadows
+  style.light = {
+    anchor: "map",
+    color: isDark ? "#d0d8f0" : "#ffffff",
+    intensity: isDark ? 0.5 : 0.6,
+    position: [1.2, 210, 40],
+  };
+
+  if (flags.fog) {
+    style.fog = {
+      range: [0.3, 6],
+      color: isDark ? "#0a0c10" : "#e8e5e0",
+      "horizon-blend": 0.15,
+    };
+  }
+
+  return style as StyleSpecification;
+}
+
+// Viridis interpolation expression — reused across fill and line layers
+const VIRIDIS_COLOR_EXPR = [
+  "interpolate",
+  ["linear"],
+  ["get", "pct_at_defaults"],
+  0,
+  VIRIDIS_STOPS[6], // worst-served — deep purple
+  0.167,
+  VIRIDIS_STOPS[5],
+  0.333,
+  VIRIDIS_STOPS[4],
+  0.5,
+  VIRIDIS_STOPS[3],
+  0.667,
+  VIRIDIS_STOPS[2],
+  0.833,
+  VIRIDIS_STOPS[1],
+  1.0,
+  VIRIDIS_STOPS[0], // best-served — yellow-green
+] as any; // eslint-disable-line @typescript-eslint/no-explicit-any -- MapLibre expression type
+
+function buildChoroplethFill(
+  isDark: boolean,
+  buildingGlow?: boolean,
+): FillLayerSpecification {
+  return {
+    id: "neighborhoods-fill",
+    type: "fill",
+    source: "neighborhoods",
+    paint: {
+      "fill-color": VIRIDIS_COLOR_EXPR,
+      // When buildingGlow is on, boost fill so the ground color is more prominent
+      "fill-opacity": buildingGlow
+        ? isDark
+          ? 0.35
+          : 0.5
+        : isDark
+          ? 0.22
+          : 0.4,
+    },
   };
 }
 
-const choroplethFill: FillLayerSpecification = {
-  id: "neighborhoods-fill",
-  type: "fill",
-  source: "neighborhoods",
-  paint: {
-    "fill-color": [
-      "interpolate",
-      ["linear"],
-      ["get", "pct_at_defaults"],
-      0,
-      VIRIDIS_STOPS[6], // worst-served — deep purple
-      0.167,
-      VIRIDIS_STOPS[5],
-      0.333,
-      VIRIDIS_STOPS[4],
-      0.5,
-      VIRIDIS_STOPS[3],
-      0.667,
-      VIRIDIS_STOPS[2],
-      0.833,
-      VIRIDIS_STOPS[1],
-      1.0,
-      VIRIDIS_STOPS[0], // best-served — yellow-green
-    ],
-    "fill-opacity": 0.75,
-  },
-};
+// Glow border — wide, blurred, same viridis color. Visible in both modes, stronger in dark.
+function buildGlowBorder(isDark: boolean): LineLayerSpecification {
+  return {
+    id: "neighborhoods-glow",
+    type: "line",
+    source: "neighborhoods",
+    paint: {
+      "line-color": VIRIDIS_COLOR_EXPR,
+      "line-width": isDark ? 8 : 5,
+      "line-opacity": isDark ? 0.35 : 0.15,
+      "line-blur": isDark ? 4 : 2,
+    },
+  };
+}
 
+// Core border line
 function buildChoroplethLine(isDark: boolean): LineLayerSpecification {
   return {
     id: "neighborhoods-line",
     type: "line",
     source: "neighborhoods",
     paint: {
-      "line-color": isDark ? "#8b949e" : "#334155",
-      "line-width": 1,
-      "line-opacity": isDark ? 0.4 : 0.6,
+      "line-color": isDark ? (VIRIDIS_COLOR_EXPR as any) : "#334155",
+      "line-width": isDark ? 1.5 : 1,
+      "line-opacity": isDark ? 0.7 : 0.6,
     },
   };
 }
@@ -78,6 +165,7 @@ interface MapInnerProps {
   freqIdx: number;
   walkIdx: number;
   isDark: boolean;
+  devFlags: DevFlags;
   onError?: () => void;
 }
 
@@ -86,11 +174,20 @@ export default function MapInner({
   freqIdx,
   walkIdx,
   isDark,
+  devFlags,
   onError,
 }: MapInnerProps) {
   const loadedRef = useRef(false);
 
-  const mapStyle = useMemo(() => buildMapStyle(isDark), [isDark]);
+  const mapStyle = useMemo(
+    () => buildMapStyle(isDark, devFlags),
+    [isDark, devFlags],
+  );
+  const fillSpec = useMemo(
+    () => buildChoroplethFill(isDark, devFlags.buildingGlow),
+    [isDark, devFlags.buildingGlow],
+  );
+  const glowSpec = useMemo(() => buildGlowBorder(isDark), [isDark]);
   const lineSpec = useMemo(() => buildChoroplethLine(isDark), [isDark]);
   const [baseGeoJSON, setBaseGeoJSON] =
     useState<GeoJSON.FeatureCollection | null>(null);
@@ -201,7 +298,21 @@ export default function MapInner({
       style={{ width: "100%", height: "100%" }}
     >
       <Source id="neighborhoods" type="geojson" data={sourceData}>
-        <Layer {...choroplethFill} />
+        <Layer {...fillSpec} />
+        {devFlags.buildingGlow && (
+          <Layer
+            id="neighborhoods-glow-base"
+            type="fill-extrusion"
+            source="neighborhoods"
+            paint={{
+              "fill-extrusion-color": VIRIDIS_COLOR_EXPR,
+              "fill-extrusion-height": 18,
+              "fill-extrusion-base": 0,
+              "fill-extrusion-opacity": isDark ? 0.18 : 0.12,
+            }}
+          />
+        )}
+        {devFlags.glowBorders && <Layer {...glowSpec} />}
         <Layer {...lineSpec} />
       </Source>
     </MapGL>
