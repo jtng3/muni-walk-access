@@ -28,6 +28,7 @@ from muni_walk_access.emit.schemas import CityWide, HexCell, NeighborhoodGrid
 from muni_walk_access.exceptions import IngestError, NetworkBuildError
 from muni_walk_access.ingest.cache import CacheManager
 from muni_walk_access.ingest.datasf import (
+    fetch_datasf_metadata,
     fetch_residential_addresses,
     get_datasf_timestamps,
     was_fallback_used,
@@ -218,8 +219,10 @@ def _run_emit(
     git_tag: str,
     config_hash: str,
     gtfs_sha256: str,
+    gtfs_feed_date: str,
     osm_date: str,
     datasf_timestamps: dict[str, str],
+    datasf_data_updated: dict[str, str],
     upstream_fallback: bool,
     output_dir: Path,
 ) -> float:
@@ -239,8 +242,10 @@ def _run_emit(
         git_tag=git_tag,
         config_hash=config_hash,
         gtfs_sha256=gtfs_sha256,
+        gtfs_feed_date=gtfs_feed_date,
         osm_date=osm_date,
         datasf_timestamps=datasf_timestamps,
+        datasf_data_updated=datasf_data_updated,
         upstream_fallback=upstream_fallback,
         config_values=config.model_dump(mode="json"),
         output_dir=output_dir,
@@ -287,8 +292,9 @@ def _run_pipeline(
     use_v2 = bool(time_windows)
 
     t0 = time.perf_counter()
+    gtfs_feed_date = ""
     if use_v2:
-        detail_df, summary_df, gtfs_sha256 = fetch_gtfs_v2(config)
+        detail_df, summary_df, gtfs_sha256, gtfs_feed_date = fetch_gtfs_v2(config)
         # For routing, we need a single stops DataFrame with coordinates.
         # Use the summary filtered to am_peak (or first window) for routing —
         # routing only needs stop_id, stop_lat, stop_lon, trips_per_hour_peak.
@@ -300,7 +306,7 @@ def _run_pipeline(
         )
         stop_count = routing_stops["stop_id"].n_unique()
     else:
-        routing_stops, gtfs_sha256 = fetch_gtfs(config)
+        routing_stops, gtfs_sha256, gtfs_feed_date = fetch_gtfs(config)
         stop_count = len(routing_stops)
     t_gtfs = time.perf_counter() - t0
     logger.info("Stage gtfs_fetch: %.1fs", t_gtfs)
@@ -434,6 +440,8 @@ def _run_pipeline(
     else:
         hex_grids_for_emit = all_hex_grids.get("_legacy", {})
 
+    datasf_data_updated = fetch_datasf_metadata(list(datasf_timestamps.keys()))
+
     t_emit = _run_emit(
         neighborhoods,
         city_wide,
@@ -445,8 +453,10 @@ def _run_pipeline(
         git_tag,
         config_hash,
         gtfs_sha256,
+        gtfs_feed_date,
         osm_date,
         datasf_timestamps,
+        datasf_data_updated,
         upstream_fallback,
         output_dir,
     )

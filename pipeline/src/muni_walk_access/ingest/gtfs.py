@@ -412,8 +412,10 @@ def _compute_stop_frequencies_v2(
 def fetch_gtfs(
     config: Config,
     client: httpx.Client | None = None,
-) -> tuple[pl.DataFrame, str]:
-    """Download GTFS zip, parse AM-peak stop frequencies, return (df, sha256).
+) -> tuple[pl.DataFrame, str, str]:
+    """Download GTFS zip, parse AM-peak stop frequencies.
+
+    Returns (df, sha256, feed_date).
 
     Falls back to cache if all upstream URLs fail. Raises IngestError if
     no upstream and no cache exist.
@@ -421,6 +423,7 @@ def fetch_gtfs(
     Returns:
         df: DataFrame with columns [stop_id, trips_per_hour_peak, stop_lat, stop_lon]
         sha256: hex digest of the raw zip bytes
+        feed_date: Last-Modified date from GTFS server, or empty string
 
     """
     cache = CacheManager(
@@ -495,13 +498,22 @@ def fetch_gtfs(
 
         sha256 = hashlib.sha256(zip_bytes).hexdigest()
 
+        # Read feed date from saved HTTP metadata
+        feed_date = ""
+        if meta_path.exists():
+            try:
+                _meta = json.loads(meta_path.read_text())
+                feed_date = _meta.get("last_modified", "")
+            except (json.JSONDecodeError, OSError):
+                pass
+
         # Cache key includes service_days so weekday/weekend don't collide
         service_days = config.frequency.service_days
         parsed_cache_id = f"{GTFS_DATASET_ID}-{service_days}-{sha256[:16]}"
         fresh_parquet = cache.get(CACHE_SUBDIR, parsed_cache_id)
         if fresh_parquet is not None:
             df = pl.read_parquet(fresh_parquet)
-            return df, sha256
+            return df, sha256, feed_date
 
         # Cache the raw zip (only if we got new data from upstream)
         if not use_cache:
@@ -517,7 +529,7 @@ def fetch_gtfs(
         df.write_parquet(buf)
         cache.put(CACHE_SUBDIR, parsed_cache_id, buf.getvalue(), "parquet")
 
-        return df, sha256
+        return df, sha256, feed_date
 
     finally:
         if own_client:
@@ -527,7 +539,7 @@ def fetch_gtfs(
 def fetch_gtfs_v2(
     config: Config,
     client: httpx.Client | None = None,
-) -> tuple[pl.DataFrame, pl.DataFrame, str]:
+) -> tuple[pl.DataFrame, pl.DataFrame, str, str]:
     """Download GTFS zip, parse per-route multi-window frequencies.
 
     Falls back to cache if all upstream URLs fail. Raises IngestError if
@@ -537,6 +549,7 @@ def fetch_gtfs_v2(
         detail: Per-route detail DataFrame
         summary: Per-stop summary DataFrame (drives hex scoring)
         sha256: hex digest of the raw zip bytes
+        feed_date: Last-Modified date from GTFS server, or empty string
 
     """
     time_windows = config.frequency.time_windows
@@ -612,6 +625,15 @@ def fetch_gtfs_v2(
 
         sha256 = hashlib.sha256(zip_bytes).hexdigest()
 
+        # Read feed date from saved HTTP metadata
+        feed_date = ""
+        if meta_path.exists():
+            try:
+                _meta = json.loads(meta_path.read_text())
+                feed_date = _meta.get("last_modified", "")
+            except (json.JSONDecodeError, OSError):
+                pass
+
         # Cache key differentiates v2 from v1
         service_days = config.frequency.service_days
         tw_keys = "-".join(tw.key for tw in time_windows)
@@ -623,7 +645,7 @@ def fetch_gtfs_v2(
         if detail_cached is not None and summary_cached is not None:
             detail = pl.read_parquet(detail_cached)
             summary = pl.read_parquet(summary_cached)
-            return detail, summary, sha256
+            return detail, summary, sha256, feed_date
 
         # Cache the raw zip (only if we got new data from upstream)
         if not use_cache:
@@ -647,7 +669,7 @@ def fetch_gtfs_v2(
             CACHE_SUBDIR, f"{parsed_cache_id}-summary", buf_s.getvalue(), "parquet"
         )
 
-        return detail, summary, sha256
+        return detail, summary, sha256, feed_date
 
     finally:
         if own_client:

@@ -9,13 +9,20 @@ const { config } = Astro.props;
 if (!config || typeof config.run_id !== 'string')
   throw new Error('DataFreshnessBanner: config prop must include a valid run_id');
 
-const runDate = new Date(config.run_id);
-const formattedDate = isNaN(runDate.getTime())
-  ? '(development build)'
-  : runDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+const fmt = (raw: string | undefined) => {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+const dv = config.data_versions;
+const gtfsDate = fmt(dv?.gtfs_feed_date);
+const addressDate = fmt(dv?.datasf_data_updated?.['ramy-di5m']);
+const osmDate = dv?.osm_extract_date
+  ? fmt(`${dv.osm_extract_date.slice(0, 4)}-${dv.osm_extract_date.slice(4, 6)}-${dv.osm_extract_date.slice(6, 8)}`)
+  : null;
 ---
 
 <p class="text-sm text-muted-foreground">
-  Based on SFMTA's GTFS feed as of {formattedDate} — and yes, this is interactive. Drag the
-  sliders to change what "frequent" and "reasonable walk" mean.
+  Data sources: SFMTA GTFS{gtfsDate && ` (${gtfsDate})`} · SF addresses{addressDate && ` (${addressDate})`} · OpenStreetMap{osmDate && ` (${osmDate})`}
 </p>

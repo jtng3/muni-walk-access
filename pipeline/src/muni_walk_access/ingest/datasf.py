@@ -48,6 +48,37 @@ def get_datasf_timestamps() -> dict[str, str]:
     return dict(_datasf_timestamps)
 
 
+def fetch_datasf_metadata(
+    dataset_ids: list[str],
+    client: httpx.Client | None = None,
+) -> dict[str, str]:
+    """Fetch rowsUpdatedAt from Socrata metadata API for each dataset.
+
+    Returns mapping of dataset_id -> ISO datetime string.
+    """
+    own_client = client is None
+    _client = client if client is not None else httpx.Client(timeout=30.0)
+    result: dict[str, str] = {}
+    try:
+        for did in dataset_ids:
+            try:
+                resp = _client.get(f"https://data.sfgov.org/api/views/{did}.json")
+                resp.raise_for_status()
+                meta = resp.json()
+                updated = meta.get("rowsUpdatedAt")
+                if updated:
+                    from datetime import datetime, timezone
+
+                    dt = datetime.fromtimestamp(int(updated), tz=timezone.utc)
+                    result[did] = dt.isoformat()
+            except Exception as exc:
+                logger.warning("Failed to fetch metadata for %s: %s", did, exc)
+    finally:
+        if own_client:
+            _client.close()
+    return result
+
+
 def _record_timestamp(dataset_id: str, path: Path) -> None:
     """Extract and store the date suffix from a cache file path."""
     stem = path.stem  # e.g. "i28k-bkz6-20260412"

@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
-import { useUrlState } from "@/lib/useUrlState";
+import { useUrlState, useUrlStringState } from "@/lib/useUrlState";
 import { useTheme } from "@/lib/useTheme";
 import type {
   GridSchema,
@@ -7,6 +7,12 @@ import type {
   TimeWindowKey,
   RouteMode,
 } from "@/lib/types";
+import { TIME_WINDOWS } from "@/lib/types";
+
+const TIME_WINDOW_KEYS = TIME_WINDOWS.map(
+  (tw) => tw.key,
+) as unknown as readonly TimeWindowKey[];
+const ROUTE_MODES: readonly RouteMode[] = ["aggregate", "headway"];
 import Controls from "./Controls";
 import MapView from "./MapView";
 import DevOverlay, { DEFAULT_DEV_FLAGS } from "./DevOverlay";
@@ -43,14 +49,34 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
   );
   const [theme, toggleTheme] = useTheme();
   const isDark = theme === "dark";
-  const [devFlags, setDevFlags] = useState<DevFlags>(DEFAULT_DEV_FLAGS);
+  const [devFlags, setDevFlags] = useState<DevFlags>({
+    ...DEFAULT_DEV_FLAGS,
+    fillOpacity: isDark ? 0.3 : 0.65,
+  });
+
+  // Sync fill opacity with theme
+  const prevDarkRef = useRef(isDark);
+  useEffect(() => {
+    if (prevDarkRef.current !== isDark) {
+      prevDarkRef.current = isDark;
+      setDevFlags((f) => ({ ...f, fillOpacity: isDark ? 0.3 : 0.65 }));
+    }
+  }, [isDark]);
 
   // View mode and resolution — local state (not URL-shared; display preferences only)
   const [viewMode, setViewMode] = useState<"summary" | "detailed">("summary");
   const [hexRes, setHexRes] = useState(10);
   const [showLabels, setShowLabels] = useState(true);
-  const [timeWindow, setTimeWindow] = useState<TimeWindowKey>("am_peak");
-  const [routeMode, setRouteMode] = useState<RouteMode>("aggregate");
+  const [timeWindow, setTimeWindow] = useUrlStringState<TimeWindowKey>(
+    "tw",
+    "am_peak",
+    TIME_WINDOW_KEYS,
+  );
+  const [routeMode, setRouteMode] = useUrlStringState<RouteMode>(
+    "rm",
+    "aggregate",
+    ROUTE_MODES,
+  );
 
   // Per-window grid data (neighborhoods + city_wide pct_within)
   const [windowGrid, setWindowGrid] = useState<GridSchema | null>(null);

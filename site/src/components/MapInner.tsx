@@ -145,18 +145,19 @@ function buildChoroplethFill(
   };
 }
 
-// Glow border — wide, blurred, same viridis color. Visible in both modes, stronger in dark.
+// Glow border — white glow in dark mode (same treatment as hex borders),
+// viridis-colored in light mode.
 function buildGlowBorder(isDark: boolean): LineLayerSpecification {
   return {
     id: "neighborhoods-glow",
     type: "line",
     source: "neighborhoods",
     paint: {
-      "line-color": VIRIDIS_COLOR_EXPR,
-      "line-width": isDark ? 8 : 5,
-      "line-opacity": isDark ? 0.35 : 0.15,
-      "line-blur": isDark ? 4 : 2,
-    },
+      "line-color": isDark ? "#ffffff" : VIRIDIS_COLOR_EXPR,
+      "line-width": isDark ? 3 : 5,
+      "line-opacity": isDark ? 0.15 : 0.15,
+      "line-blur": isDark ? 2.5 : 2,
+    } as any,
   };
 }
 
@@ -167,9 +168,9 @@ function buildChoroplethLine(isDark: boolean): LineLayerSpecification {
     type: "line",
     source: "neighborhoods",
     paint: {
-      "line-color": isDark ? (VIRIDIS_COLOR_EXPR as any) : "#334155",
-      "line-width": isDark ? 1.5 : 1,
-      "line-opacity": isDark ? 0.7 : 0.6,
+      "line-color": isDark ? "#ffffff" : "#334155",
+      "line-width": isDark ? 0.5 : 1,
+      "line-opacity": isDark ? 0.2 : 0.6,
     },
   };
 }
@@ -255,7 +256,23 @@ export default function MapInner({
         return r.json();
       })
       .then((fc: GeoJSON.FeatureCollection) => {
-        if (!cancelled) setBaseGeoJSON(fc);
+        if (!cancelled) {
+          setBaseGeoJSON(fc);
+          if (import.meta.env.DEV) {
+            const geoIds = new Set(
+              fc.features.map((f: any) => f.properties?.id),
+            );
+            const gridIds = new Set(data.neighborhoods.map((n) => n.id));
+            const missing = [...geoIds].filter((id) => !gridIds.has(id));
+            const extra = [...gridIds].filter((id) => !geoIds.has(id));
+            if (missing.length || extra.length) {
+              console.warn("[MapInner] ID mismatch!", {
+                inGeoJSONNotGrid: missing,
+                inGridNotGeoJSON: extra,
+              });
+            }
+          }
+        }
       })
       .catch((err) => {
         console.error("Failed to fetch GeoJSON:", err);
@@ -288,7 +305,14 @@ export default function MapInner({
       ...baseGeoJSON,
       features: baseGeoJSON.features.map((f) => {
         const idx = idxById.get(f.properties?.id);
-        if (idx === undefined) return f;
+        if (idx === undefined) {
+          if (import.meta.env.DEV) {
+            console.warn(
+              `[MapInner] sourceData: no grid entry for id="${f.properties?.id}" — using baked-in pct=${f.properties?.pct_at_defaults}`,
+            );
+          }
+          return f;
+        }
         return {
           ...f,
           properties: {
@@ -351,6 +375,11 @@ export default function MapInner({
                 rendered.walkIdx
               ]
             : 0;
+        if (idx === undefined && import.meta.env.DEV) {
+          console.warn(
+            `[MapInner] labelSourceData: no grid entry for id="${f.properties?.id}" — using baked-in pct=${pct}`,
+          );
+        }
         return {
           type: "Feature" as const,
           geometry: {
@@ -463,27 +492,27 @@ export default function MapInner({
               "fill-opacity": devFlags.fillOpacity,
             }}
           />
-          {/* Hex glow border — soft halo per cell, dark mode only */}
-          {isDark && (
-            <Layer
-              id="hex-glow"
-              type="line"
-              paint={{
-                "line-color": VIRIDIS_COLOR_EXPR,
-                "line-width": 3.5,
-                "line-opacity": 0.12,
-                "line-blur": 2,
-              }}
-            />
-          )}
-          {/* Hex core border — subtle honeycomb grid */}
+          {/* Hex border — white/gray line with subtle glow.
+              Lightens the fill color at edges, creating a clean honeycomb grid. */}
+          {/* Opacity halved so shared edges (drawn 2x) look correct;
+              outer boundary edges will be subtler. */}
+          <Layer
+            id="hex-glow"
+            type="line"
+            paint={{
+              "line-color": isDark ? "#ffffff" : "#000000",
+              "line-width": isDark ? 2.5 : 1.5,
+              "line-opacity": isDark ? 0.075 : 0.05,
+              "line-blur": isDark ? 2 : 1,
+            }}
+          />
           <Layer
             id="hex-border"
             type="line"
             paint={{
-              "line-color": VIRIDIS_COLOR_EXPR,
+              "line-color": isDark ? "#ffffff" : "#000000",
               "line-width": 0.5,
-              "line-opacity": isDark ? 0.4 : 0.3,
+              "line-opacity": isDark ? 0.075 : 0.06,
             }}
           />
         </Source>

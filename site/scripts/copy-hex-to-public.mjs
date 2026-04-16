@@ -15,11 +15,12 @@ if (!existsSync(publicDataDir)) {
   mkdirSync(publicDataDir, { recursive: true });
 }
 
-// Match grid_hex_r*.json and grid_*.json (per-window grid files)
+// Match grid_hex_r*_{timewindow}.json (skip bare base files) and grid_*.json
+// (but not grid_hex_* which are handled by the first pattern)
 const files = readdirSync(srcDataDir).filter(
   (f) =>
-    /^grid_hex_r\d+(_[a-z_0-9]+)?\.json$/.test(f) ||
-    /^grid_[a-z_0-9]+\.json$/.test(f),
+    /^grid_hex_r\d+_[a-z_0-9]+\.json$/.test(f) ||
+    /^grid_(?!hex)[a-z_0-9]+\.json$/.test(f),
 );
 
 for (const file of files) {

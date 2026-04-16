@@ -128,8 +128,10 @@ class DataVersions(BaseModel):
     """Upstream data source versions used in a pipeline run."""
 
     gtfs_feed_sha256: str
+    gtfs_feed_date: str
     osm_extract_date: str
     datasf_timestamps: dict[str, str]
+    datasf_data_updated: dict[str, str]
 
 
 class ConfigSnapshot(BaseModel):

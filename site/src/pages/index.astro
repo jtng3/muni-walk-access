@@ -1,9 +1,9 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import type { GridSchema, ConfigSnapshot } from '../lib/types';
-import DataFreshnessBanner from '../components/DataFreshnessBanner.astro';
 import InteractiveView from '../components/InteractiveView';
-import NeighborhoodCard from '../components/NeighborhoodCard.astro';
+import DataSourceDates from '../components/DataSourceDates';
+import NeighborhoodSection from '../components/NeighborhoodSection';
 
 // Pipeline-generated files (gitignored) take precedence; seed fixtures are
 // committed fallbacks for fresh-clone or CI builds (copied by prebuild script).
@@ -12,42 +12,15 @@ import configRaw from '../data/config_snapshot.json';
 
 const grid = gridRaw as unknown as GridSchema;
 const config = configRaw as unknown as ConfigSnapshot;
-
-// Sort neighborhoods alphabetically
-const sortedNeighborhoods = [...grid.neighborhoods].sort(
-  (a, b) => a.name.localeCompare(b.name)
-);
-
-// Compute pct at defaults for each neighborhood
-const freqIdx = grid.defaults.frequency_idx;
-const walkIdx = grid.defaults.walking_idx;
 ---
 
 <BaseLayout title="MUNI Walk Access" description="SF transit walking-distance accessibility analysis">
   <!-- Map hero: full-bleed, no container constraints -->
-  <div id="top">
+  <div id="top" class="relative">
     <InteractiveView client:only="react" data={grid} />
+    <DataSourceDates client:only="react" config={config} className="absolute bottom-4 right-28 z-10" />
   </div>
 
-  <!-- Supporting content below the map -->
-  <div class="max-w-6xl mx-auto px-4 py-8">
-    <DataFreshnessBanner config={config} />
-  </div>
-
-  <!-- Neighborhoods card grid -->
-  <section id="neighborhoods" class="max-w-6xl mx-auto px-4 py-12">
-    <h2 class="text-2xl font-heading font-semibold mb-8">Neighborhoods</h2>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-      {sortedNeighborhoods.map((n) => (
-        <NeighborhoodCard
-          variant="summary"
-          id={n.id}
-          name={n.name}
-          pctAtDefaults={n.pct_within[freqIdx][walkIdx]}
-          population={n.population}
-          lensFlags={n.lens_flags}
-        />
-      ))}
-    </div>
-  </section>
+  <!-- Neighborhoods section with reactive controls -->
+  <NeighborhoodSection client:only="react" data={grid} config={config} />
 </BaseLayout>

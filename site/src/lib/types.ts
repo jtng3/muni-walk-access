@@ -49,8 +49,10 @@ export interface CodeVersion {
 
 export interface DataVersions {
   readonly gtfs_feed_sha256: string;
+  readonly gtfs_feed_date: string;
   readonly osm_extract_date: string;
   readonly datasf_timestamps: Readonly<Record<string, string>>;
+  readonly datasf_data_updated: Readonly<Record<string, string>>;
 }
 
 export interface ConfigSnapshot {
