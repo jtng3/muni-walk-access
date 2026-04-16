@@ -325,22 +325,24 @@ def _run_pipeline(
 
     if use_v2:
         # --- Multi-window path ---
-        # Stratify once with am_peak for the neighbourhood grid + lens flags
-        # (these don't change per window — the spatial join is window-independent)
+        # Stratify once with default window for the spatial join base
         stratified, _flags, neighborhoods, city_wide, t_lens, t_grid = _run_stratify(
             result, summary_df, config, time_window=default_window
         )
 
-        # Hex grids: loop once per time window
-        # Reuse the spatial join from _run_stratify — only swap the frequency column
+        # Per-window grid + hex: loop once per time window
         logger.info("Stage stratify_hex: starting (%d windows)", len(time_windows))
         t0 = time.perf_counter()
         all_hex_grids: dict[str, dict[int, list[HexCell]]] = {}
+        per_window_grids: dict[str, tuple[list[NeighborhoodGrid], CityWide]] = {}
         for tw in time_windows:
             if tw.key == default_window:
                 tw_stratified = stratified  # already computed above
+                per_window_grids[tw.key] = (neighborhoods, city_wide)
             else:
                 tw_stratified = restratify_for_window(stratified, summary_df, tw.key)
+                tw_neighborhoods, tw_city_wide = compute_grid(tw_stratified, config)
+                per_window_grids[tw.key] = (tw_neighborhoods, tw_city_wide)
             tw_hex = compute_hex_grids(tw_stratified, config)
             all_hex_grids[tw.key] = tw_hex
             logger.info(
@@ -373,12 +375,16 @@ def _run_pipeline(
     # For v2, emit per-window hex files; for legacy, emit without time_window
     hex_grids_for_emit: dict[int, list[HexCell]] = {}
     if use_v2:
-        # Write per-window hex JSON files
+        # Write per-window hex + grid JSON files
         for tw_key, tw_hex in all_hex_grids.items():
             if tw_hex:
                 write_grid_hex_json(
                     tw_hex, config, run_id, output_dir, time_window=tw_key
                 )
+        for tw_key, (tw_nbhds, tw_cw) in per_window_grids.items():
+            write_grid_json(
+                tw_nbhds, tw_cw, config, run_id, output_dir, time_window=tw_key
+            )
     else:
         hex_grids_for_emit = all_hex_grids.get("_legacy", {})
 

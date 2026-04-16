@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, Settings2 } from "lucide-react";
-import type { GridAxes, GridDefaults } from "@/lib/types";
+import type { GridAxes, GridDefaults, TimeWindowKey } from "@/lib/types";
+import { TIME_WINDOWS } from "@/lib/types";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -50,6 +51,8 @@ interface ControlsProps {
   h3Failed: boolean;
   showLabels: boolean;
   onShowLabelsChange: (show: boolean) => void;
+  timeWindow: TimeWindowKey;
+  onTimeWindowChange: (tw: TimeWindowKey) => void;
 }
 
 export default function Controls({
@@ -74,6 +77,8 @@ export default function Controls({
   h3Failed,
   showLabels,
   onShowLabelsChange,
+  timeWindow,
+  onTimeWindowChange,
 }: ControlsProps) {
   const [open, setOpen] = useState(true);
   const formattedPct = Math.round(pct * 100);
@@ -90,7 +95,9 @@ export default function Controls({
           {formattedPct}%
         </span>
         <span className="text-xs text-muted-foreground">
-          {freqMin}min &middot; {walkMiles}mi
+          {TIME_WINDOWS.find((tw) => tw.key === timeWindow)?.label ??
+            timeWindow}{" "}
+          &middot; {freqMin}min &middot; {walkMiles}mi
         </span>
         <Settings2 className="ml-1 h-3.5 w-3.5 text-muted-foreground" />
       </button>
@@ -108,7 +115,9 @@ export default function Controls({
             {formattedPct}%
           </span>
           <p className="text-xs text-muted-foreground mt-0.5">
-            every {freqMin} min &middot; {walkMiles} mi walk
+            every {freqMin} min &middot; {walkMiles} mi walk &middot;{" "}
+            {TIME_WINDOWS.find((tw) => tw.key === timeWindow)?.long ??
+              timeWindow}
           </p>
           <p className="text-[10px] text-muted-foreground/70 mt-0.5">
             {totalAddresses.toLocaleString()} addresses analyzed
@@ -121,6 +130,31 @@ export default function Controls({
         >
           <ChevronDown className="h-4 w-4" />
         </button>
+      </div>
+
+      {/* Time-of-day window — primary control */}
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-muted-foreground">Time of day</p>
+        <div className="flex gap-1" role="group" aria-label="Time window">
+          {TIME_WINDOWS.map((tw) => (
+            <Button
+              key={tw.key}
+              variant={timeWindow === tw.key ? "default" : "outline"}
+              size="sm"
+              className="flex-1 px-0 h-auto py-1.5 flex-col gap-0"
+              onClick={() => onTimeWindowChange(tw.key)}
+              aria-pressed={timeWindow === tw.key}
+              aria-label={`${tw.long} (${tw.range})`}
+            >
+              <span className="text-[11px] leading-tight font-medium">
+                {tw.label}
+              </span>
+              <span className="text-[9px] leading-tight opacity-70 font-normal">
+                {tw.range}
+              </span>
+            </Button>
+          ))}
+        </div>
       </div>
 
       <Separator />

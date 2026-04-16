@@ -17,15 +17,15 @@
 
 | Stage | Time (s) | Time (min) |
 |---|---|---|
-| network_build | 26.7 | 0.44 |
-| address_fetch | 1.7 | 0.03 |
-| gtfs_fetch | 0.6 | 0.01 |
+| network_build | 26.9 | 0.45 |
+| address_fetch | 1.6 | 0.03 |
+| gtfs_fetch | 0.5 | 0.01 |
 | routing | 3.1 | 0.05 |
-| stratify_lens | 1.3 | 0.02 |
+| stratify_lens | 1.2 | 0.02 |
 | stratify_grid | 0.6 | 0.01 |
-| stratify_hex | 7.0 | 0.12 |
-| emit | 0.4 | 0.01 |
-| **Total** | **43.0** | **0.72** |
+| stratify_hex | 10.3 | 0.17 |
+| emit | 0.5 | 0.01 |
+| **Total** | **46.6** | **0.78** |
 
 ## Memory
 
@@ -34,6 +34,6 @@
 
 ## Budget Projection
 
-- Total time: 0.72 min
+- Total time: 0.78 min
 - Gate threshold: 20 min (within 30-min GHA budget)
-- **Verdict: PASS: 0.7 min — within gate threshold (< 20 min)**
+- **Verdict: PASS: 0.8 min — within gate threshold (< 20 min)**

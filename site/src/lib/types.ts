@@ -102,7 +102,18 @@ export interface HexGridSchema {
   readonly h3_resolution: number;
   readonly run_id: string;
   readonly config_snapshot_url: string;
+  readonly time_window?: string;
   readonly axes: GridAxes;
   readonly defaults: GridDefaults;
   readonly cells: readonly HexCell[];
 }
+
+export const TIME_WINDOWS = [
+  { key: "am_peak", label: "AM", long: "AM Rush", range: "6–9a" },
+  { key: "midday", label: "Midday", long: "Midday", range: "9a–3p" },
+  { key: "pm_peak", label: "PM", long: "PM Rush", range: "3–7p" },
+  { key: "evening", label: "Eve", long: "Evening", range: "7p–12a" },
+  { key: "overnight", label: "Night", long: "Overnight", range: "12–6a" },
+] as const;
+
+export type TimeWindowKey = (typeof TIME_WINDOWS)[number]["key"];

@@ -1,8 +1,7 @@
 /**
- * Prebuild/predev script: copies grid_hex_r*.json from src/data/ to public/data/
- * so they are accessible at /data/grid_hex_r{N}.json at runtime.
- * Only copies files that exist — missing resolutions are handled gracefully by
- * the resolution picker (fetch 404 → disable that option).
+ * Prebuild/predev script: copies grid*.json (hex + per-window grids) from
+ * src/data/ to public/data/ so they are accessible at /data/* at runtime.
+ * Only copies files that exist — missing files are handled gracefully by the UI.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -16,17 +15,18 @@ if (!existsSync(publicDataDir)) {
   mkdirSync(publicDataDir, { recursive: true });
 }
 
-const files = readdirSync(srcDataDir).filter((f) =>
-  /^grid_hex_r\d+\.json$/.test(f),
+// Match grid_hex_r*.json and grid_*.json (per-window grid files)
+const files = readdirSync(srcDataDir).filter(
+  (f) =>
+    /^grid_hex_r\d+(_[a-z_0-9]+)?\.json$/.test(f) ||
+    /^grid_[a-z_0-9]+\.json$/.test(f),
 );
 
 for (const file of files) {
   copyFileSync(join(srcDataDir, file), join(publicDataDir, file));
-  console.log(`[copy-hex] ${file} → public/data/`);
+  console.log(`[copy-data] ${file} → public/data/`);
 }
 
 if (files.length === 0) {
-  console.log(
-    "[copy-hex] No grid_hex_r*.json files found in src/data/ — skipping.",
-  );
+  console.log("[copy-data] No grid*.json files found in src/data/ — skipping.");
 }
