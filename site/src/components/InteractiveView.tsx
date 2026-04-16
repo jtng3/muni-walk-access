@@ -323,6 +323,37 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
         onRouteModeChange={handleRouteModeChange}
         headwayUnavailable={headwayUnavailable}
       />
+      {/* Floating view-mode toggle — top-center of map */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
+        <div
+          className="inline-flex rounded-full bg-card/60 backdrop-blur-md border border-border shadow-lg overflow-hidden"
+          role="group"
+          aria-label="View mode"
+        >
+          <button
+            onClick={() => handleViewModeChange("summary")}
+            className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+              viewMode === "summary"
+                ? "bg-primary text-primary-foreground"
+                : "text-foreground hover:bg-muted/50"
+            }`}
+            aria-pressed={viewMode === "summary"}
+          >
+            Neighborhoods
+          </button>
+          <button
+            onClick={() => handleViewModeChange("detailed")}
+            className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+              viewMode === "detailed"
+                ? "bg-primary text-primary-foreground"
+                : "text-foreground hover:bg-muted/50"
+            }`}
+            aria-pressed={viewMode === "detailed"}
+          >
+            Hex Grid
+          </button>
+        </div>
+      </div>
       <DevOverlay flags={devFlags} onChange={setDevFlags} />
     </div>
   );

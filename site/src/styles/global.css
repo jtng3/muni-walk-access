@@ -94,9 +94,10 @@
  * contrast: 0–1. Scales the distance between surfaces and text.
  *
  * Design decisions:
- *   Light base H=80 (warm stone) — approachable for a civic/community tool.
- *   Dark base H=265 (cool blue-black) — data-dashboard feel; viridis yellows
- *     pop harder against blue-black than warm-black.
+ *   Light base H=264 (neutral cool) — clean, achromatic grays with
+ *     barely perceptible cool undertone.
+ *   Dark base H=264 (neutral cool) — same hue family; viridis yellows
+ *     still pop against neutral dark backgrounds.
  *   Accent H=257 (slate-blue) — doesn't conflict with any viridis stop
  *     (viridis spans H≈310→110). Same hue both modes, brighter in dark.
  *   Contrast 0.85/0.80 — slightly lower in dark mode because dark screens
@@ -106,8 +107,8 @@
 /* --- Light theme inputs --- */
 :root {
   --base-l: 0.985;
-  --base-c: 0.003;
-  --base-h: 80;
+  --base-c: 0.001;
+  --base-h: 264;
   --accent-l: 0.37;
   --accent-c: 0.044;
   --accent-h: 257;
@@ -190,10 +191,10 @@
 
 /* --- Dark theme inputs --- */
 .dark {
-  --base-l: 0.13;
-  --base-c: 0.007;
-  --base-h: 265;
-  --accent-l: 0.55;
+  --base-l: 0.125;
+  --base-c: 0.003;
+  --base-h: 264;
+  --accent-l: 0.4;
   --accent-c: 0.04;
   --accent-h: 257;
   --contrast: 0.8;
@@ -232,7 +233,7 @@
 
   /* Accent-derived */
   --primary: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
-  --primary-foreground: var(--background);
+  --primary-foreground: oklch(0.95 0.003 264);
   --ring: var(--primary);
 
   /* Semantic — bumped lightness for dark backgrounds */

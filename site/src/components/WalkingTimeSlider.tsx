@@ -33,8 +33,8 @@ export default function WalkingTimeSlider({
   const minutes = axes[value];
   const changed = value !== defaultValue;
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between min-h-[1.5rem]">
+    <div className="space-y-1">
+      <div className="flex items-center justify-between min-h-[1.25rem]">
         <label className="text-xs font-medium text-foreground">
           {minutes} min walk &middot; {formatMiles(minutes)} mi
         </label>
@@ -61,7 +61,7 @@ export default function WalkingTimeSlider({
           `${minutes} minute walk, approximately ${formatMilesAria(minutes)}`
         }
       />
-      <div className="relative mt-1 h-4" aria-hidden="true">
+      <div className="relative mt-0.5 h-4" aria-hidden="true">
         {axes.map((v, i) => {
           const pct = (i / (axes.length - 1)) * 100;
           const align =

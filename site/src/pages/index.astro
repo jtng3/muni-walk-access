@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import MethodologySection from '../components/MethodologySection.astro';
 import type { GridSchema, ConfigSnapshot } from '../lib/types';
 import InteractiveView from '../components/InteractiveView';
 import DataSourceDates from '../components/DataSourceDates';
@@ -23,4 +24,7 @@ const config = configRaw as unknown as ConfigSnapshot;
 
   <!-- Neighborhoods section with reactive controls -->
   <NeighborhoodSection client:only="react" data={grid} config={config} />
+
+  <!-- Methodology / How this works -->
+  <MethodologySection />
 </BaseLayout>

@@ -8,11 +8,16 @@ interface ThemeToggleProps {
 export default function ThemeToggle({ isDark, onToggle }: ThemeToggleProps) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-sm font-medium">Dark mode</span>
+      <label
+        className="text-xs font-medium text-muted-foreground"
+        htmlFor="theme-toggle"
+      >
+        Dark mode
+      </label>
       <Switch
+        id="theme-toggle"
         checked={isDark}
         onCheckedChange={onToggle}
-        size="sm"
         aria-label="Toggle dark mode"
       />
     </div>

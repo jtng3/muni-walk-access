@@ -124,13 +124,13 @@ function buildChoroplethFill(
   opacity: number,
   viewMode: "summary" | "detailed" = "summary",
 ): FillLayerSpecification {
-  // Detailed mode: hex carries the color, neighbourhood fill hidden entirely
+  // Detailed mode: hex carries the color, neighbourhood fill transparent but
+  // still queryable for hover tooltips (visibility must remain "visible").
   if (viewMode === "detailed") {
     return {
       id: "neighborhoods-fill",
       type: "fill",
       source: "neighborhoods",
-      layout: { visibility: "none" },
       paint: { "fill-color": VIRIDIS_COLOR_EXPR, "fill-opacity": 0 },
     };
   }

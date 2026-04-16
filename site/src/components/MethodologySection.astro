@@ -1,0 +1,343 @@
+---
+---
+
+<section id="methodology" class="py-16 border-t border-border">
+  <div class="max-w-3xl mx-auto px-4 space-y-12">
+
+    <!-- Opening -->
+    <div class="space-y-4">
+      <h2 class="text-2xl font-semibold text-foreground">How This Works</h2>
+      <p class="text-foreground leading-relaxed">
+        Every transit equity debate comes down to a definition nobody agrees on: what counts as
+        "good service." A bus every 10 minutes? Every 15? Within a 5-minute walk, or a 10-minute
+        walk? These thresholds determine which neighborhoods look well-served and which look
+        underserved, and the choice is usually buried in a methodology appendix, invisible
+        to the people arguing about the results.
+      </p>
+      <p class="text-foreground leading-relaxed">
+        This tool makes that invisible choice visible.
+      </p>
+    </div>
+
+    <!-- What the Map Shows -->
+    <div class="space-y-4">
+      <h3 class="text-xl font-semibold text-foreground">What the Map Shows</h3>
+      <p class="text-foreground leading-relaxed">
+        The map displays San Francisco's 41 Analysis Neighborhoods, each colored by what
+        percentage of residents have good transit access, using whatever definition of
+        "good" you choose.
+      </p>
+      <p class="text-foreground leading-relaxed">
+        Two sliders control the definition:
+      </p>
+      <ul class="list-disc pl-6 space-y-2 text-foreground leading-relaxed">
+        <li>
+          <strong>Frequency:</strong> "A bus every ___ minutes or better" (4 to 20 minutes)
+        </li>
+        <li>
+          <strong>Walking time:</strong> "Within a ___ minute walk" (3 to 15 minutes)
+        </li>
+      </ul>
+      <p class="text-foreground leading-relaxed">
+        As you drag, the map recolors and the headline number updates. Drag the frequency
+        slider from 10 minutes to 15 and watch a neighborhood flip color. That change
+        reflects a different policy position, not different data.
+      </p>
+
+      <div class="space-y-3 rounded-xl bg-muted/50 p-4 text-sm text-foreground leading-relaxed">
+        <p>
+          <strong>Time of day:</strong> Service varies throughout the day. A selector
+          lets you switch between five time windows: AM Rush (6&ndash;9 AM),
+          Midday (9 AM&ndash;3 PM), PM Rush (3&ndash;7 PM),
+          Evening (7 PM&ndash;Midnight), and Overnight (Midnight&ndash;6 AM).
+          The map updates to show access during each window.
+        </p>
+        <p>
+          <strong>Route mode:</strong> By default, the tool counts all buses arriving
+          at a stop together. If three lines each run every 20 minutes, the combined frequency
+          is roughly every 7 minutes. But if you need a specific line, your actual wait is
+          20 minutes. A toggle switches between "All buses" (combined frequency) and
+          "Your route" (single-route headway), so you can see both perspectives.
+        </p>
+        <p>
+          <strong>Detail level:</strong> A Summary/Detailed toggle switches between
+          neighborhood-level coloring and a finer-grained hexagonal grid that reveals variation
+          <em>within</em> neighborhoods. For example, the east side of the Sunset near the
+          L-Taraval is better served than the western blocks.
+        </p>
+      </div>
+    </div>
+
+    <!-- Data Sources -->
+    <div class="space-y-4">
+      <h3 class="text-xl font-semibold text-foreground">Data Sources</h3>
+      <p class="text-foreground leading-relaxed">
+        All data used in this tool is public and free. Every dataset is linked so you can
+        verify the inputs yourself.
+      </p>
+
+      <div class="overflow-x-auto -mx-4 px-4">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-border text-left">
+              <th class="py-2 pr-4 font-medium text-foreground">Data</th>
+              <th class="py-2 pr-4 font-medium text-foreground">Source</th>
+              <th class="py-2 font-medium text-foreground">What it provides</th>
+            </tr>
+          </thead>
+          <tbody class="text-muted-foreground">
+            <tr class="border-b border-border/50">
+              <td class="py-3 pr-4 text-foreground">Residential addresses</td>
+              <td class="py-3 pr-4">
+                <a href="https://data.sfgov.org/d/ramy-di5m" class="underline hover:text-foreground" target="_blank" rel="noopener">DataSF&nbsp;EAS</a>
+              </td>
+              <td class="py-3">Every addressable residential unit in SF with coordinates, including per-unit granularity (apartment 2A, 2B, etc.)</td>
+            </tr>
+            <tr class="border-b border-border/50">
+              <td class="py-3 pr-4 text-foreground">Property classification</td>
+              <td class="py-3 pr-4">
+                <a href="https://data.sfgov.org/d/wv5m-vpq2" class="underline hover:text-foreground" target="_blank" rel="noopener">SF&nbsp;Assessor via&nbsp;DataSF</a>
+              </td>
+              <td class="py-3">Distinguishes residential from commercial, industrial, and vacant parcels</td>
+            </tr>
+            <tr class="border-b border-border/50">
+              <td class="py-3 pr-4 text-foreground">Transit schedules</td>
+              <td class="py-3 pr-4">
+                <a href="https://www.sfmta.com/reports/gtfs-transit-data" class="underline hover:text-foreground" target="_blank" rel="noopener">SFMTA&nbsp;GTFS&nbsp;Feed</a>
+              </td>
+              <td class="py-3">Published bus and rail schedules: every trip, every stop, every departure time</td>
+            </tr>
+            <tr class="border-b border-border/50">
+              <td class="py-3 pr-4 text-foreground">Street network</td>
+              <td class="py-3 pr-4">
+                <a href="https://www.openstreetmap.org" class="underline hover:text-foreground" target="_blank" rel="noopener">OpenStreetMap</a>
+              </td>
+              <td class="py-3">Sidewalks, crosswalks, paths, staircases, and dead ends. These are the routes a pedestrian would actually walk.</td>
+            </tr>
+            <tr class="border-b border-border/50">
+              <td class="py-3 pr-4 text-foreground">Neighborhood boundaries</td>
+              <td class="py-3 pr-4">
+                <a href="https://data.sfgov.org/d/j2bu-swwd" class="underline hover:text-foreground" target="_blank" rel="noopener">DataSF</a>
+              </td>
+              <td class="py-3">San Francisco's 41 official Analysis Neighborhoods</td>
+            </tr>
+            <tr class="border-b border-border/50">
+              <td class="py-3 pr-4 text-foreground">Environmental Justice areas</td>
+              <td class="py-3 pr-4">
+                <a href="https://data.sfgov.org/d/y6ci-vpnb" class="underline hover:text-foreground" target="_blank" rel="noopener">DataSF</a>
+              </td>
+              <td class="py-3">Areas identified under California SB 1000 with disproportionate pollution and health burden</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4 text-foreground">SFMTA Equity Strategy</td>
+              <td class="py-3 pr-4">
+                <a href="https://data.sfgov.org/d/my8t-jqzp" class="underline hover:text-foreground" target="_blank" rel="noopener">DataSF</a>
+              </td>
+              <td class="py-3">SFMTA's own equity priority areas based on demographics and transit dependency</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-sm text-muted-foreground leading-relaxed">
+        Each pipeline run produces a timestamped snapshot with full provenance. If someone
+        questions a number, it can be traced to exactly which data and parameters produced it.
+      </p>
+    </div>
+
+    <!-- How the Method Works -->
+    <div class="space-y-6">
+      <h3 class="text-xl font-semibold text-foreground">How the Method Works</h3>
+
+      <div class="space-y-2">
+        <h4 class="font-medium text-foreground">Step 1: Collect every residential address</h4>
+        <p class="text-foreground leading-relaxed">
+          The pipeline pulls approximately 232,000 residential addresses from DataSF's Enterprise
+          Addressing System. These are individual units (apartment 2A and apartment 2B are
+          separate entries) because the question is "what percentage of <em>residents</em>
+          have access," not "what percentage of <em>buildings</em>." Commercial, industrial, and
+          vacant parcels are filtered out using the Assessor's property classification codes.
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="font-medium text-foreground">Step 2: Build the walking network</h4>
+        <p class="text-foreground leading-relaxed">
+          The pipeline downloads San Francisco's pedestrian street network from OpenStreetMap:
+          every sidewalk, crosswalk, path, staircase, and dead-end alley. This network
+          is what the routing engine uses to measure real walking distances. It follows the paths
+          a pedestrian would actually take, including detours around freeways, one-way pedestrian
+          paths, and blocks with no through-connection.
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="font-medium text-foreground">Step 3: Measure distance and frequency</h4>
+        <p class="text-foreground leading-relaxed">
+          For each address, the pipeline finds the nearest Muni stop by actual walking distance
+          through the street network, not straight-line distance. It then looks up that
+          stop's service frequency from the published GTFS schedule: how many buses arrive per
+          hour during each time window.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          Walking distance is converted to walking time using the FTA standard pace of 20 minutes
+          per mile, the same rate that transit planners use across the country.
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="font-medium text-foreground">Step 4: Pre-compute results for every slider position</h4>
+        <p class="text-foreground leading-relaxed">
+          The pipeline computes results for every combination of frequency threshold and
+          walking-time threshold, across all five time windows and both route modes. For each
+          combination, it counts what percentage of residents in each neighborhood live within
+          reach of a qualifying stop.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          The full set of pre-computed results fits in a file small enough to load instantly.
+          When you move a slider, the site looks up one number. It does not re-route
+          232,000 addresses.
+        </p>
+      </div>
+    </div>
+
+    <!-- Worked Example -->
+    <div class="space-y-4 rounded-xl bg-muted/50 p-6">
+      <h3 class="text-xl font-semibold text-foreground">Worked Example: 2490 Shafter Ave</h3>
+      <p class="text-foreground leading-relaxed">
+        To make the method concrete, here is one address traced through the pipeline.
+      </p>
+      <p class="text-foreground leading-relaxed">
+        <strong>2490 Shafter Ave</strong> sits in the Portola neighborhood, a few blocks north of the
+        Cesar Chavez corridor.
+      </p>
+      <ol class="list-decimal pl-6 space-y-3 text-foreground leading-relaxed">
+        <li>
+          <strong>Address collection:</strong> The Enterprise Addressing System lists this as a
+          residential unit. The Assessor classifies the parcel as single-family residential. It
+          passes the filter.
+        </li>
+        <li>
+          <strong>Network routing:</strong> The pipeline finds the nearest Muni stop by walking
+          distance through the street network: Cesar Chavez &amp; Potrero, approximately
+          340 meters away.
+        </li>
+        <li>
+          <strong>Walking time:</strong> At the standard pace of 20 minutes per mile, that's
+          about 4 minutes.
+        </li>
+        <li>
+          <strong>Stop frequency:</strong> During AM Rush, this stop is served by buses arriving
+          roughly every 8 minutes.
+        </li>
+        <li>
+          <strong>Does this address have access?</strong> That depends on the slider settings:
+          <ul class="list-disc pl-6 mt-2 space-y-1">
+            <li>
+              At <strong>10-min frequency / 5-min walk</strong>: The stop qualifies (every
+              8 min beats every 10), and 4 minutes is within the 5-minute threshold.
+              <strong class="text-green-600 dark:text-green-400">Within reach.</strong>
+            </li>
+            <li>
+              At <strong>6-min frequency / 5-min walk</strong>: The walk is fine, but the stop's
+              8-minute headway doesn't meet the 6-minute bar.
+              <strong class="text-red-600 dark:text-red-400">Not within reach.</strong>
+            </li>
+            <li>
+              At <strong>10-min frequency / 3-min walk</strong>: The stop qualifies on frequency,
+              but 4 minutes exceeds the 3-minute walk threshold.
+              <strong class="text-red-600 dark:text-red-400">Not within reach.</strong>
+            </li>
+          </ul>
+        </li>
+      </ol>
+      <p class="text-foreground leading-relaxed">
+        Same address, same bus stop, same data. The answer changes depending on what
+        you define as "good enough." This is what the sliders are designed to show.
+      </p>
+    </div>
+
+    <!-- Three Equity Lenses -->
+    <div class="space-y-4">
+      <h3 class="text-xl font-semibold text-foreground">Three Equity Lenses</h3>
+      <p class="text-foreground leading-relaxed">
+        Different agencies define "disadvantaged community" differently. This tool checks each
+        neighborhood against three frameworks simultaneously:
+      </p>
+      <ul class="space-y-3 text-foreground leading-relaxed">
+        <li>
+          <strong>Analysis Neighborhoods:</strong> San Francisco's 41 official planning
+          areas. Every address falls within one.
+        </li>
+        <li>
+          <strong>Environmental Justice Communities:</strong> Areas identified under
+          California SB 1000 with disproportionate pollution and health burden.
+        </li>
+        <li>
+          <strong>SFMTA Equity Strategy Neighborhoods:</strong> SFMTA's own equity
+          priority areas, defined by demographics and transit dependency. This is a separate
+          framework from the state EJ designation.
+        </li>
+      </ul>
+      <p class="text-foreground leading-relaxed">
+        Each neighborhood card shows which frameworks flag it. The most informative cases are
+        neighborhoods where the lenses <em>disagree</em>. Where the lenses diverge, equity
+        policy is genuinely contested, not just a data question.
+      </p>
+    </div>
+
+    <!-- Known Limitations -->
+    <div class="space-y-6">
+      <h3 class="text-xl font-semibold text-foreground">Known Limitations</h3>
+
+      <div class="space-y-2">
+        <h4 class="font-medium text-foreground">Schedule versus reality</h4>
+        <p class="text-muted-foreground leading-relaxed">
+          The frequency numbers come from the published GTFS schedule, which reflects what SFMTA
+          plans to run, not what riders experience. A stop scheduled for a bus every 10 minutes
+          may feel like every 15 due to bunching or traffic delays. This tool measures planned
+          service, not delivered service.
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="font-medium text-foreground">Flat terrain assumption</h4>
+        <p class="text-muted-foreground leading-relaxed">
+          Walking time uses a standard 20-minute-per-mile pace on flat ground. San Francisco has
+          significant hills. Walking uphill to a stop on Twin Peaks takes longer than the flat-pace
+          estimate suggests. A future version plans to integrate elevation data and adjust walking
+          speed for slope.
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="font-medium text-foreground">No transfers evaluated</h4>
+        <p class="text-muted-foreground leading-relaxed">
+          The tool measures distance to the nearest stop, not the quality of the trip you can
+          take from there. A well-connected hub where you can reach five different routes is
+          worth more to a rider than an isolated stop with the same headway. Each stop is
+          evaluated independently.
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="font-medium text-foreground">No sidewalk condition data</h4>
+        <p class="text-muted-foreground leading-relaxed">
+          A narrow or obstructed sidewalk is harder to walk, and harder to navigate with
+          a wheelchair or stroller, than a wide, clear one. This version treats all
+          sidewalks equally. If a current sidewalk-condition dataset becomes available, it could
+          be incorporated.
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="font-medium text-foreground">Snapshot only</h4>
+        <p class="text-muted-foreground leading-relaxed">
+          Each pipeline run produces a single point-in-time snapshot. The tool does not yet show
+          how transit access has changed over months or years.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</section>

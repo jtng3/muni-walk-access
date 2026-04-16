@@ -279,33 +279,6 @@ export default function Controls({
         />
       </div>
 
-      <Separator />
-
-      {/* Summary / Detailed toggle */}
-      <div className="space-y-2">
-        <p className="text-xs font-medium text-muted-foreground">View</p>
-        <div className="flex gap-2" role="group" aria-label="View mode">
-          <Button
-            variant={viewMode === "summary" ? "default" : "outline"}
-            size="sm"
-            className="flex-1"
-            onClick={() => onViewModeChange("summary")}
-            aria-pressed={viewMode === "summary"}
-          >
-            Summary
-          </Button>
-          <Button
-            variant={viewMode === "detailed" ? "default" : "outline"}
-            size="sm"
-            className="flex-1"
-            onClick={() => onViewModeChange("detailed")}
-            aria-pressed={viewMode === "detailed"}
-          >
-            Detailed
-          </Button>
-        </div>
-      </div>
-
       {/* Global h3 failure — disables all hex features */}
       {h3Failed && viewMode === "detailed" && (
         <p className="text-[10px] text-destructive/80">

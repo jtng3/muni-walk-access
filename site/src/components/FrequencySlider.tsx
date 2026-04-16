@@ -24,8 +24,8 @@ export default function FrequencySlider({
       ? `Frequent: wait ≤ ${minutes} min for your route`
       : `Frequent: every ${minutes} min or better`;
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between min-h-[1.5rem]">
+    <div className="space-y-1">
+      <div className="flex items-center justify-between min-h-[1.25rem]">
         <label className="text-xs font-medium text-foreground">{label}</label>
         <button
           onClick={() => onChange(defaultValue)}
@@ -52,7 +52,7 @@ export default function FrequencySlider({
             : `every ${axes[value]} minutes or better`
         }
       />
-      <div className="relative mt-1 h-4" aria-hidden="true">
+      <div className="relative mt-0.5 h-4" aria-hidden="true">
         {axes.map((v, i) => {
           const pct = (i / (axes.length - 1)) * 100;
           const align =
