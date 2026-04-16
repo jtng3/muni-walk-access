@@ -43,6 +43,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
   // View mode and resolution — local state (not URL-shared; display preferences only)
   const [viewMode, setViewMode] = useState<"summary" | "detailed">("summary");
   const [hexRes, setHexRes] = useState(8);
+  const [showLabels, setShowLabels] = useState(true);
 
   // Hex data state
   const [hexBaseFC, setHexBaseFC] = useState<GeoJSON.FeatureCollection | null>(
@@ -187,6 +188,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
           viewMode={viewMode}
           hexBaseFC={hexBaseFC}
           hexData={hexData}
+          showLabels={showLabels}
         />
       </div>
       <Controls
@@ -209,6 +211,8 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
         hexLoading={hexLoading}
         failedResolutions={failedResolutions}
         h3Failed={h3Failed}
+        showLabels={showLabels}
+        onShowLabelsChange={setShowLabels}
       />
       <DevOverlay flags={devFlags} onChange={setDevFlags} />
     </div>

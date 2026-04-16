@@ -1,5 +1,5 @@
+import { RotateCcw } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { Button } from "@/components/ui/button";
 
 interface WalkingTimeSliderProps {
   axes: readonly number[];
@@ -31,21 +31,25 @@ export default function WalkingTimeSlider({
   onChange,
 }: WalkingTimeSliderProps) {
   const minutes = axes[value];
+  const changed = value !== defaultValue;
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between min-h-[1.5rem]">
         <label className="text-sm font-medium text-foreground">
           {minutes} min walk &middot; {formatMiles(minutes)} mi
         </label>
-        {value !== defaultValue && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onChange(defaultValue)}
-          >
-            Reset
-          </Button>
-        )}
+        <button
+          onClick={() => onChange(defaultValue)}
+          className={`ml-2 shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground transition-all ${
+            changed
+              ? "opacity-100 cursor-pointer"
+              : "opacity-0 pointer-events-none"
+          }`}
+          aria-label="Reset walking time"
+          tabIndex={changed ? 0 : -1}
+        >
+          <RotateCcw className="h-3 w-3" />
+        </button>
       </div>
       <Slider
         min={0}

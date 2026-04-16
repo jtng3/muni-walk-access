@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Map as MapGL, Source, Layer } from "react-map-gl/maplibre";
+import { Map as MapGL, Source, Layer, Marker } from "react-map-gl/maplibre";
 import { Protocol } from "pmtiles";
 import { layers as pmLayers, LIGHT, DARK } from "@protomaps/basemaps";
 import { VIRIDIS_STOPS } from "@/lib/choropleth";
@@ -10,10 +10,18 @@ import type {
   FillLayerSpecification,
   LineLayerSpecification,
   StyleSpecification,
-  SymbolLayerSpecification,
   GeoJSONSourceSpecification,
 } from "maplibre-gl";
 import type { DevFlags } from "./DevOverlay";
+import polylabel from "@/lib/polylabel";
+
+// Manual label position overrides for neighborhoods where polylabel doesn't look right
+const LABEL_OVERRIDES: Record<string, [number, number]> = {
+  "outer-richmond": [-122.4968, 37.7785], // shift left — very wide polygon
+  "golden-gate-park": [-122.48, 37.7692], // shift left
+  "financial-district-south-beach": [-122.392, 37.7904], // shift right + south
+  chinatown: [-122.4065, 37.7981], // shift north (adjusted south 0.001)
+};
 
 // Self-hosted PMTiles extract (23 MB, zoom 0–14, SF + bay + Oakland waterfront).
 // Regenerate with:
@@ -110,9 +118,10 @@ const VIRIDIS_COLOR_EXPR = [
   VIRIDIS_STOPS[0], // best-served — yellow-green
 ] as any; // eslint-disable-line @typescript-eslint/no-explicit-any -- MapLibre expression type
 
+// Fill opacity is controlled by devFlags.fillOpacity slider
+
 function buildChoroplethFill(
-  isDark: boolean,
-  buildingGlow?: boolean,
+  opacity: number,
   viewMode: "summary" | "detailed" = "summary",
 ): FillLayerSpecification {
   // Detailed mode: hex carries the color, neighbourhood fill hidden entirely
@@ -125,8 +134,6 @@ function buildChoroplethFill(
       paint: { "fill-color": VIRIDIS_COLOR_EXPR, "fill-opacity": 0 },
     };
   }
-  // Summary mode: traditional choropleth for board presentations
-  const opacity = buildingGlow ? (isDark ? 0.35 : 0.5) : isDark ? 0.55 : 0.65;
   return {
     id: "neighborhoods-fill",
     type: "fill",
@@ -167,33 +174,24 @@ function buildChoroplethLine(isDark: boolean): LineLayerSpecification {
   };
 }
 
-// Neighbourhood name + percentage labels at polygon centroids.
-// text-allow-overlap + text-ignore-placement: all 41 labels must be visible.
-function buildLabelsLayer(isDark: boolean): SymbolLayerSpecification {
-  return {
-    id: "neighborhood-labels",
-    type: "symbol",
-    source: "neighborhoods",
-    layout: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- MapLibre expression type
-      "text-field": [
-        "concat",
-        ["get", "name"],
-        "\n",
-        ["to-string", ["round", ["*", 100, ["get", "pct_at_defaults"]]]],
-        "%",
-      ] as any,
-      "text-size": 12,
-      "text-allow-overlap": true,
-      "text-ignore-placement": true,
-    },
-    paint: {
-      "text-color": isDark ? "#e2e8f0" : "#1e293b",
-      "text-halo-color": isDark ? "rgba(0,0,0,0.7)" : "white",
-      "text-halo-width": 2,
-    },
-  };
-}
+// Label styles — CSS text-shadow produces a smooth glow (no WebGL halo artifacts)
+const LABEL_STYLE_LIGHT: React.CSSProperties = {
+  color: "rgba(30,41,59,0.95)",
+  textShadow: "0 0 3px rgba(255,255,255,0.6), 0 0 1px rgba(255,255,255,0.7)",
+  fontSize: 11,
+  fontFamily: "'Inter', system-ui, sans-serif",
+  fontWeight: 500,
+  lineHeight: 1.2,
+  textAlign: "center",
+  pointerEvents: "none",
+  userSelect: "none",
+  whiteSpace: "nowrap",
+};
+const LABEL_STYLE_DARK: React.CSSProperties = {
+  ...LABEL_STYLE_LIGHT,
+  color: "rgba(203,213,225,0.95)",
+  textShadow: "0 0 3px rgba(0,0,0,0.5), 0 0 1px rgba(0,0,0,0.6)",
+};
 
 interface MapInnerProps {
   data: GridSchema;
@@ -205,6 +203,7 @@ interface MapInnerProps {
   viewMode: "summary" | "detailed";
   hexBaseFC: GeoJSON.FeatureCollection | null;
   hexData: HexGridSchema | null;
+  showLabels: boolean;
 }
 
 export default function MapInner({
@@ -217,20 +216,26 @@ export default function MapInner({
   viewMode,
   hexBaseFC,
   hexData,
+  showLabels,
 }: MapInnerProps) {
   const loadedRef = useRef(false);
+  const [hover, setHover] = useState<{
+    name: string;
+    pct: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const mapStyle = useMemo(
     () => buildMapStyle(isDark, devFlags),
     [isDark, devFlags],
   );
   const fillSpec = useMemo(
-    () => buildChoroplethFill(isDark, devFlags.buildingGlow, viewMode),
-    [isDark, devFlags.buildingGlow, viewMode],
+    () => buildChoroplethFill(devFlags.fillOpacity, viewMode),
+    [devFlags.fillOpacity, viewMode],
   );
   const glowSpec = useMemo(() => buildGlowBorder(isDark), [isDark]);
   const lineSpec = useMemo(() => buildChoroplethLine(isDark), [isDark]);
-  const labelsSpec = useMemo(() => buildLabelsLayer(isDark), [isDark]);
 
   const [baseGeoJSON, setBaseGeoJSON] =
     useState<GeoJSON.FeatureCollection | null>(null);
@@ -304,6 +309,70 @@ export default function MapInner({
     idxById,
   ]);
 
+  // Polylabel visual centers — computed once from polygon geometry.
+  // For MultiPolygons, pick the largest polygon by area (shoelace) to avoid
+  // tiny slivers like piers or waterfront strips pulling the label off-center.
+  const labelCenters = useMemo(() => {
+    if (!baseGeoJSON) return null;
+
+    // Shoelace area — unsigned, works for any simple polygon ring
+    const ringArea = (ring: number[][]) => {
+      let a = 0;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
+        a += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+      return Math.abs(a / 2);
+    };
+
+    return baseGeoJSON.features.map((f) => {
+      let coords: number[][][];
+      if (f.geometry.type === "MultiPolygon") {
+        const mp = f.geometry as GeoJSON.MultiPolygon;
+        coords = mp.coordinates.reduce((best, poly) =>
+          ringArea(poly[0]) > ringArea(best[0]) ? poly : best,
+        );
+      } else {
+        coords = (f.geometry as GeoJSON.Polygon).coordinates;
+      }
+      const id = f.properties?.id as string;
+      return LABEL_OVERRIDES[id] ?? polylabel(coords);
+    });
+  }, [baseGeoJSON]);
+
+  // Label point source — visual centers with live pct values
+  const labelSourceData = useMemo<GeoJSON.FeatureCollection | null>(() => {
+    if (!baseGeoJSON || !labelCenters) return null;
+    return {
+      type: "FeatureCollection",
+      features: baseGeoJSON.features.map((f, i) => {
+        const idx = idxById.get(f.properties?.id);
+        const pct =
+          idx !== undefined
+            ? data.neighborhoods[idx].pct_within[rendered.freqIdx][
+                rendered.walkIdx
+              ]
+            : 0;
+        return {
+          type: "Feature" as const,
+          geometry: {
+            type: "Point" as const,
+            coordinates: labelCenters[i],
+          },
+          properties: {
+            name: f.properties?.name,
+            pct_at_defaults: pct,
+          },
+        };
+      }),
+    };
+  }, [
+    baseGeoJSON,
+    labelCenters,
+    rendered.freqIdx,
+    rendered.walkIdx,
+    data.neighborhoods,
+    idxById,
+  ]);
+
   // Hex fill — recolour pct_at_defaults on slider drag (rAF-throttled, same path as above)
   // feature[i] corresponds to hexData.cells[i] — guaranteed by InteractiveView build order.
   const hexSourceData = useMemo<GeoJSON.FeatureCollection | null>(() => {
@@ -351,6 +420,26 @@ export default function MapInner({
     <MapGL
       onLoad={handleLoad}
       onError={handleError}
+      onMouseMove={(e) => {
+        const hits = e.target.queryRenderedFeatures(e.point, {
+          layers: ["neighborhoods-fill"],
+        });
+        if (hits.length > 0 && hits[0].properties?.name) {
+          setHover({
+            name: hits[0].properties.name as string,
+            pct: Math.round(
+              ((hits[0].properties.pct_at_defaults as number) ?? 0) * 100,
+            ),
+            x: e.originalEvent.clientX,
+            y: e.originalEvent.clientY,
+          });
+          e.target.getCanvas().style.cursor = "pointer";
+        } else {
+          setHover(null);
+          e.target.getCanvas().style.cursor = "";
+        }
+      }}
+      onMouseLeave={() => setHover(null)}
       initialViewState={{
         bounds: [
           [-122.54, 37.695],
@@ -371,7 +460,7 @@ export default function MapInner({
             beforeId="neighborhoods-fill"
             paint={{
               "fill-color": VIRIDIS_COLOR_EXPR,
-              "fill-opacity": isDark ? 0.18 : 0.38,
+              "fill-opacity": devFlags.fillOpacity,
             }}
           />
           {/* Hex glow border — soft halo per cell, dark mode only */}
@@ -418,8 +507,55 @@ export default function MapInner({
         )}
         {devFlags.glowBorders && <Layer {...glowSpec} />}
         <Layer {...lineSpec} />
-        <Layer {...labelsSpec} />
       </Source>
+
+      {/* Neighbourhood labels — HTML markers with CSS text-shadow glow */}
+      {showLabels &&
+        labelSourceData?.features.map((f) => {
+          const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates as [
+            number,
+            number,
+          ];
+          const name = f.properties?.name as string;
+          const pct = Math.round(
+            ((f.properties?.pct_at_defaults as number) ?? 0) * 100,
+          );
+          return (
+            <Marker key={name} longitude={lng} latitude={lat} anchor="center">
+              <div style={isDark ? LABEL_STYLE_DARK : LABEL_STYLE_LIGHT}>
+                {name}
+                <br />
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{pct}%</span>
+              </div>
+            </Marker>
+          );
+        })}
+
+      {/* Hover tooltip */}
+      {hover && (
+        <div
+          style={{
+            position: "fixed",
+            left: hover.x + 14,
+            top: hover.y - 32,
+            background: isDark ? "rgba(15,23,42,0.6)" : "rgba(255,255,255,0.6)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            color: isDark ? "#e2e8f0" : "#1e293b",
+            borderRadius: 8,
+            padding: "6px 12px",
+            fontSize: 13,
+            fontFamily: "'Inter', system-ui, sans-serif",
+            pointerEvents: "none",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.18)",
+            zIndex: 50,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {hover.name}
+          <strong style={{ marginLeft: 8 }}>{hover.pct}%</strong>
+        </div>
+      )}
     </MapGL>
   );
 }

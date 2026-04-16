@@ -16,6 +16,7 @@ interface MapViewProps {
   viewMode: "summary" | "detailed";
   hexBaseFC: GeoJSON.FeatureCollection | null;
   hexData: HexGridSchema | null;
+  showLabels: boolean;
 }
 
 export default function MapView({
@@ -27,6 +28,7 @@ export default function MapView({
   viewMode,
   hexBaseFC,
   hexData,
+  showLabels,
 }: MapViewProps) {
   const [runtimeError, setRuntimeError] = useState(false);
   const handleError = useCallback(() => setRuntimeError(true), []);
@@ -48,6 +50,7 @@ export default function MapView({
           viewMode={viewMode}
           hexBaseFC={hexBaseFC}
           hexData={hexData}
+          showLabels={showLabels}
         />
       </Suspense>
     </ErrorBoundary>

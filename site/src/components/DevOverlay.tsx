@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, Wrench } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 
 export interface DevFlags {
   terrain: boolean;
@@ -8,14 +9,16 @@ export interface DevFlags {
   buildings3d: boolean;
   glowBorders: boolean;
   buildingGlow: boolean;
+  fillOpacity: number;
 }
 
 export const DEFAULT_DEV_FLAGS: DevFlags = {
-  terrain: true,
-  fog: false, // WIP — not visually working yet
-  buildings3d: true,
-  glowBorders: false, // WIP — needs tuning
-  buildingGlow: false, // WIP — needs deck.gl for true gradient
+  terrain: false,
+  fog: false,
+  buildings3d: false,
+  glowBorders: false,
+  buildingGlow: false,
+  fillOpacity: 0.75,
 };
 
 interface DevOverlayProps {
@@ -23,7 +26,11 @@ interface DevOverlayProps {
   onChange: (flags: DevFlags) => void;
 }
 
-const FLAG_LABELS: { key: keyof DevFlags; label: string }[] = [
+type BooleanDevFlag = {
+  [K in keyof DevFlags]: DevFlags[K] extends boolean ? K : never;
+}[keyof DevFlags];
+
+const FLAG_LABELS: { key: BooleanDevFlag; label: string }[] = [
   { key: "terrain", label: "3D Terrain" },
   { key: "fog", label: "Fog" },
   { key: "buildings3d", label: "3D Buildings" },
@@ -38,7 +45,7 @@ export default function DevOverlay({ flags, onChange }: DevOverlayProps) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="absolute bottom-4 right-4 z-10 rounded-lg bg-card/80 backdrop-blur-md border border-border p-2 shadow-lg hover:bg-card/90 transition-colors cursor-pointer"
+        className="absolute bottom-4 right-4 z-10 rounded-lg bg-card/60 backdrop-blur-md border border-border p-2 shadow-lg hover:bg-card/70 transition-colors cursor-pointer"
         aria-label="Open dev tools"
       >
         <Wrench className="h-4 w-4 text-muted-foreground" />
@@ -47,7 +54,7 @@ export default function DevOverlay({ flags, onChange }: DevOverlayProps) {
   }
 
   return (
-    <div className="absolute bottom-4 right-4 z-10 w-52 rounded-lg bg-card/80 backdrop-blur-md border border-border p-3 shadow-lg space-y-2">
+    <div className="absolute bottom-4 right-4 z-10 w-52 rounded-lg bg-card/60 backdrop-blur-md border border-border p-3 shadow-lg space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Dev Tools
@@ -71,6 +78,27 @@ export default function DevOverlay({ flags, onChange }: DevOverlayProps) {
           />
         </div>
       ))}
+
+      <div className="space-y-1 pt-1">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-foreground">Fill Opacity</span>
+          <span className="text-[10px] tabular-nums text-muted-foreground">
+            {Math.round(flags.fillOpacity * 100)}%
+          </span>
+        </div>
+        <Slider
+          min={0}
+          max={100}
+          step={5}
+          value={[Math.round(flags.fillOpacity * 100)]}
+          onValueChange={(v) =>
+            onChange({
+              ...flags,
+              fillOpacity: (Array.isArray(v) ? v[0] : v) / 100,
+            })
+          }
+        />
+      </div>
     </div>
   );
 }

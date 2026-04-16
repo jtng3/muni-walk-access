@@ -1,5 +1,5 @@
+import { RotateCcw } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { Button } from "@/components/ui/button";
 
 interface FrequencySliderProps {
   axes: readonly number[];
@@ -14,21 +14,25 @@ export default function FrequencySlider({
   defaultValue,
   onChange,
 }: FrequencySliderProps) {
+  const changed = value !== defaultValue;
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between min-h-[1.5rem]">
         <label className="text-sm font-medium text-foreground">
           Frequent = every {axes[value]} min or better
         </label>
-        {value !== defaultValue && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onChange(defaultValue)}
-          >
-            Reset
-          </Button>
-        )}
+        <button
+          onClick={() => onChange(defaultValue)}
+          className={`ml-2 shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground transition-all ${
+            changed
+              ? "opacity-100 cursor-pointer"
+              : "opacity-0 pointer-events-none"
+          }`}
+          aria-label="Reset frequency"
+          tabIndex={changed ? 0 : -1}
+        >
+          <RotateCcw className="h-3 w-3" />
+        </button>
       </div>
       <Slider
         min={0}
