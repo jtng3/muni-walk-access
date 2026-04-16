@@ -4,7 +4,6 @@ import type { GridSchema, ConfigSnapshot } from '../lib/types';
 import DataFreshnessBanner from '../components/DataFreshnessBanner.astro';
 import InteractiveView from '../components/InteractiveView';
 import NeighborhoodCard from '../components/NeighborhoodCard.astro';
-import { getCollection, render } from 'astro:content';
 
 // Pipeline-generated files (gitignored) take precedence; seed fixtures are
 // committed fallbacks for fresh-clone or CI builds (copied by prebuild script).
@@ -13,20 +12,6 @@ import configRaw from '../data/config_snapshot.json';
 
 const grid = gridRaw as unknown as GridSchema;
 const config = configRaw as unknown as ConfigSnapshot;
-
-// Spotlight Content Collection — graceful degradation if no MDX files exist
-let spotlightEntries: Awaited<ReturnType<typeof getCollection>> = [];
-try {
-  spotlightEntries = await getCollection('neighborhoods');
-} catch {
-  spotlightEntries = [];
-}
-
-// Pre-render all spotlight MDX bodies
-const renderedSpotlights = new Map<string, Awaited<ReturnType<typeof render>>>();
-for (const entry of spotlightEntries) {
-  renderedSpotlights.set(entry.id, await render(entry));
-}
 
 // Sort neighborhoods alphabetically
 const sortedNeighborhoods = [...grid.neighborhoods].sort(
@@ -53,37 +38,16 @@ const walkIdx = grid.defaults.walking_idx;
   <section id="neighborhoods" class="max-w-6xl mx-auto px-4 py-12">
     <h2 class="text-2xl font-heading font-semibold mb-8">Neighborhoods</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-      {sortedNeighborhoods.map((n) => {
-        const pctAtDefaults = n.pct_within[freqIdx][walkIdx];
-        const rendered = renderedSpotlights.get(n.id);
-
-        if (rendered) {
-          const { Content } = rendered;
-          return (
-            <NeighborhoodCard
-              variant="spotlight"
-              id={n.id}
-              name={n.name}
-              pctAtDefaults={pctAtDefaults}
-              population={n.population}
-              lensFlags={n.lens_flags}
-            >
-              <Content />
-            </NeighborhoodCard>
-          );
-        }
-
-        return (
-          <NeighborhoodCard
-            variant="summary"
-            id={n.id}
-            name={n.name}
-            pctAtDefaults={pctAtDefaults}
-            population={n.population}
-            lensFlags={n.lens_flags}
-          />
-        );
-      })}
+      {sortedNeighborhoods.map((n) => (
+        <NeighborhoodCard
+          variant="summary"
+          id={n.id}
+          name={n.name}
+          pctAtDefaults={n.pct_within[freqIdx][walkIdx]}
+          population={n.population}
+          lensFlags={n.lens_flags}
+        />
+      ))}
     </div>
   </section>
 </BaseLayout>
