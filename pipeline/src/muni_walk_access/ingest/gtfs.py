@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import logging
 import zipfile
 
@@ -17,16 +18,12 @@ from muni_walk_access.ingest.datasf import set_upstream_fallback
 
 logger = logging.getLogger(__name__)
 
-# TODO: Both URLs are broken as of 2026-04-15. URL[0] returns 400 (CSV endpoint,
-# not a GTFS zip). URL[1] times out intermittently. Pipeline falls back to cached
-# zip (~75s wasted on timeouts). Fix URLs or add --emit-only CLI flag to skip.
 # Canonical download page: https://www.sfmta.com/reports/gtfs-transit-data
-GTFS_URLS = [
-    "https://data.sfgov.org/api/views/2qyp-77cq/rows.csv?accessType=DOWNLOAD",
-    "https://gtfs.sfmta.com/transitdata/google_transit.zip",
-]
-GTFS_DATASET_ID = "2qyp-77cq"
+# Old DataSF dataset 2qyp-77cq is deprecated. Old gtfs.sfmta.com URL dead.
+GTFS_URL = "https://muni-gtfs.apps.sfmta.com/data/muni_gtfs-current.zip"
+GTFS_DATASET_ID = "muni-gtfs"
 CACHE_SUBDIR = "gtfs"
+_META_FILENAME = f"{GTFS_DATASET_ID}-http.json"
 
 
 def _parse_time_seconds(t: str) -> int | None:
@@ -172,32 +169,57 @@ def fetch_gtfs(
     zip_bytes: bytes | None = None
     sha256: str = ""
 
+    # Load saved HTTP metadata for conditional requests
+    meta_path = cache._dir(CACHE_SUBDIR) / _META_FILENAME
+    http_meta: dict[str, str] = {}
+    if meta_path.exists():
+        try:
+            http_meta = json.loads(meta_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
     try:
-        # Try each upstream URL in order
-        last_exc: Exception | None = None
-        for url in GTFS_URLS:
-            try:
-                resp = _client.get(url)
+        # Conditional fetch — skip download if server content unchanged
+        headers: dict[str, str] = {}
+        if http_meta.get("etag"):
+            headers["If-None-Match"] = http_meta["etag"]
+        if http_meta.get("last_modified"):
+            headers["If-Modified-Since"] = http_meta["last_modified"]
+
+        use_cache = False
+        try:
+            resp = _client.get(GTFS_URL, headers=headers)
+            if resp.status_code == 304:
+                logger.info("GTFS unchanged (304 Not Modified), using cache")
+                use_cache = True
+            else:
                 resp.raise_for_status()
                 zip_bytes = resp.content
-                break
-            except (httpx.HTTPError, httpx.TransportError) as exc:
-                logger.warning("GTFS fetch failed from %s: %s", url, exc)
-                last_exc = exc
+                # Save HTTP metadata for next conditional request
+                new_meta: dict[str, str] = {}
+                if resp.headers.get("etag"):
+                    new_meta["etag"] = resp.headers["etag"]
+                if resp.headers.get("last-modified"):
+                    new_meta["last_modified"] = resp.headers["last-modified"]
+                if new_meta:
+                    meta_path.write_text(json.dumps(new_meta))
+        except (httpx.HTTPError, httpx.TransportError) as exc:
+            logger.warning("GTFS fetch failed from %s: %s", GTFS_URL, exc)
+            use_cache = True
 
-        if zip_bytes is None:
-            # All URLs failed — try cache
-            stale_zip = cache.get_any(CACHE_SUBDIR, GTFS_DATASET_ID + "-zip")
-            if stale_zip is not None and stale_zip.suffix == ".zip":
-                logger.warning("All GTFS URLs failed; using cached zip %s", stale_zip)
-                set_upstream_fallback()
-                zip_bytes = stale_zip.read_bytes()
+        if use_cache or zip_bytes is None:
+            cached_zip = cache.get_any(CACHE_SUBDIR, GTFS_DATASET_ID + "-zip")
+            if cached_zip is not None and cached_zip.suffix == ".zip":
+                if not use_cache:
+                    logger.warning("GTFS fetch failed; using cached zip %s", cached_zip)
+                    set_upstream_fallback()
+                zip_bytes = cached_zip.read_bytes()
             else:
                 raise IngestError(
                     GTFS_DATASET_ID,
-                    f"All GTFS URLs failed and no local cache: {last_exc}. "
+                    "GTFS fetch failed and no local cache. "
                     "Warm the cache with network access first.",
-                ) from last_exc
+                )
 
         sha256 = hashlib.sha256(zip_bytes).hexdigest()
 
@@ -208,8 +230,9 @@ def fetch_gtfs(
             df = pl.read_parquet(fresh_parquet)
             return df, sha256
 
-        # Cache the raw zip
-        cache.put(CACHE_SUBDIR, GTFS_DATASET_ID + "-zip", zip_bytes, "zip")
+        # Cache the raw zip (only if we got new data from upstream)
+        if not use_cache:
+            cache.put(CACHE_SUBDIR, GTFS_DATASET_ID + "-zip", zip_bytes, "zip")
 
         # Parse the zip
         df = _compute_stop_frequencies(zip_bytes, peak_start, peak_end)
