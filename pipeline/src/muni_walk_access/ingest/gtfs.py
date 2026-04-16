@@ -1,4 +1,4 @@
-"""GTFS feed fetcher and AM-peak stop-frequency parser."""
+"""GTFS feed fetcher and AM-peak stop-frequency parser with calendar filtering."""
 
 from __future__ import annotations
 
@@ -47,12 +47,55 @@ def _parse_peak_seconds(time_str: str) -> int:
     return int(h) * 3600 + int(m) * 60
 
 
+def _get_service_ids(zf: zipfile.ZipFile, service_days: str) -> set[str]:
+    """Read calendar.txt and return service_ids matching the requested day type.
+
+    Args:
+        zf: Open GTFS zip file.
+        service_days: One of "weekday", "saturday", or "sunday".
+
+    """
+    day_columns = {
+        "weekday": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+        "saturday": ["saturday"],
+        "sunday": ["sunday"],
+    }
+    cols = day_columns.get(service_days)
+    if cols is None:
+        raise ValueError(f"Invalid service_days: {service_days!r}")
+
+    try:
+        cal_df = pl.read_csv(io.BytesIO(zf.read("calendar.txt")), infer_schema_length=0)
+    except KeyError:
+        logger.warning("No calendar.txt in GTFS zip; skipping service-day filter")
+        return set()
+
+    # Filter to rows where ALL requested day columns are "1"
+    mask = pl.lit(True)
+    for col in cols:
+        mask = mask & (pl.col(col) == "1")
+    matching = cal_df.filter(mask)
+
+    service_ids = set(matching["service_id"].to_list())
+    logger.info(
+        "Calendar filter: service_days=%s → %d service ID(s): %s",
+        service_days,
+        len(service_ids),
+        sorted(service_ids),
+    )
+    return service_ids
+
+
 def _compute_stop_frequencies(
     zip_bytes: bytes,
     peak_start_sec: int,
     peak_end_sec: int,
+    service_days: str = "weekday",
 ) -> pl.DataFrame:
     """Parse trips.txt + stop_times.txt + stops.txt from GTFS zip.
+
+    Filters trips to the requested service day type (weekday/saturday/sunday)
+    using calendar.txt before computing frequencies.
 
     Returns DataFrame with columns:
         stop_id (str), trips_per_hour_peak (float), stop_lat (float), stop_lon (float).
@@ -82,9 +125,22 @@ def _compute_stop_frequencies(
                 f"GTFS zip missing required file: {exc}",
             ) from exc
 
+        # Filter trips to matching service day type
+        service_ids = _get_service_ids(zf, service_days)
+
+    if service_ids:
+        pre_filter = len(trips_df)
+        trips_df = trips_df.filter(pl.col("service_id").is_in(list(service_ids)))
+        logger.info(
+            "Service-day filter: %d → %d trips (%d excluded)",
+            pre_filter,
+            len(trips_df),
+            pre_filter - len(trips_df),
+        )
+
     trip_ids = set(trips_df["trip_id"].to_list())
 
-    # Filter stop_times to valid trips and AM peak window
+    # Filter stop_times to valid trips and peak window
     stop_times_df = stop_times_df.filter(pl.col("trip_id").is_in(list(trip_ids)))
 
     # Parse departure_time to seconds (None for malformed times)
@@ -223,8 +279,9 @@ def fetch_gtfs(
 
         sha256 = hashlib.sha256(zip_bytes).hexdigest()
 
-        # Check if we have a parsed Parquet cached for this exact zip
-        parsed_cache_id = f"{GTFS_DATASET_ID}-{sha256[:16]}"
+        # Cache key includes service_days so weekday/weekend don't collide
+        service_days = config.frequency.service_days
+        parsed_cache_id = f"{GTFS_DATASET_ID}-{service_days}-{sha256[:16]}"
         fresh_parquet = cache.get(CACHE_SUBDIR, parsed_cache_id)
         if fresh_parquet is not None:
             df = pl.read_parquet(fresh_parquet)
@@ -235,7 +292,9 @@ def fetch_gtfs(
             cache.put(CACHE_SUBDIR, GTFS_DATASET_ID + "-zip", zip_bytes, "zip")
 
         # Parse the zip
-        df = _compute_stop_frequencies(zip_bytes, peak_start, peak_end)
+        df = _compute_stop_frequencies(
+            zip_bytes, peak_start, peak_end, service_days=service_days
+        )
 
         # Cache the parsed result keyed by content hash
         buf = io.BytesIO()

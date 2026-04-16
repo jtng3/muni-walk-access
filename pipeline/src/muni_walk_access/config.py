@@ -23,6 +23,7 @@ class FrequencyConfig(BaseModel):
     peak_window: str
     peak_am_start: str
     peak_am_end: str
+    service_days: str = "weekday"  # "weekday", "saturday", or "sunday"
 
 
 class GridDefaultsConfig(BaseModel):
