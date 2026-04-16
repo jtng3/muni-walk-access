@@ -1,0 +1,74 @@
+---
+import type { LensFlags } from "@/lib/types";
+import LensBadge from "./LensBadge";
+import CopyUrlButton from "./CopyUrlButton";
+
+interface Props {
+  variant: "summary" | "spotlight";
+  id: string;
+  name: string;
+  pctAtDefaults: number;
+  population: number;
+  lensFlags: LensFlags;
+}
+
+const { variant, id, name, pctAtDefaults, population, lensFlags } = Astro.props;
+---
+
+{variant === "spotlight" ? (
+  <article
+    id={`n-${id}`}
+    data-selected="false"
+    data-neighborhood-id={id}
+    class="group/card flex flex-col gap-4 overflow-hidden rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10 shadow-sm md:col-span-2 lg:col-span-full"
+  >
+    <div class="px-4 space-y-1">
+      <h3 class="font-heading text-xl font-semibold">{name}</h3>
+      <div class="flex items-center gap-3">
+        <span
+          class="text-3xl font-semibold tabular-nums"
+          data-pct-default="true"
+          data-neighborhood-id={id}
+        >
+          {Math.round(pctAtDefaults * 100)}%
+        </span>
+        <span class="text-sm text-muted-foreground">
+          of {population.toLocaleString("en-US")} residents within walking distance
+        </span>
+        <LensBadge client:visible flags={lensFlags} />
+      </div>
+    </div>
+    <div class="px-4">
+      <div class="space-y-4 text-lg leading-relaxed text-foreground [&>p]:leading-relaxed">
+        <slot />
+      </div>
+    </div>
+    <div class="flex items-center rounded-b-xl border-t bg-muted/50 p-4">
+      <CopyUrlButton client:visible neighborhoodId={id} />
+    </div>
+  </article>
+) : (
+  <article
+    id={`n-${id}`}
+    data-selected="false"
+    data-neighborhood-id={id}
+    class="group/card flex flex-col gap-4 overflow-hidden rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10 shadow-sm"
+  >
+    <div class="px-4">
+      <h3 class="font-heading text-base font-medium">{name}</h3>
+    </div>
+    <div class="px-4 flex items-center justify-between">
+      <span
+        class="text-2xl font-semibold tabular-nums"
+        data-pct-default="true"
+        data-neighborhood-id={id}
+      >
+        {Math.round(pctAtDefaults * 100)}%
+      </span>
+      <span class="text-sm text-muted-foreground">
+        {population.toLocaleString("en-US")} residents
+      </span>
+      <LensBadge client:visible flags={lensFlags} />
+    </div>
+  </article>
+)}
