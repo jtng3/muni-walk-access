@@ -230,6 +230,7 @@ class HexGridSchema(BaseModel):
     h3_resolution: int
     run_id: str
     config_snapshot_url: str
+    time_window: str | None = None
     axes: GridAxes
     defaults: GridDefaults
     cells: list[HexCell]

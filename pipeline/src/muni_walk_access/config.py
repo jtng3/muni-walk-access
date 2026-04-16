@@ -16,6 +16,54 @@ class FrequencyBin(BaseModel):
     max_headway_min: int | None
 
 
+class TimeWindow(BaseModel):
+    """A named time-of-day window for frequency analysis."""
+
+    key: str
+    label: str
+    start: str  # "HH:MM"
+    end: str  # "HH:MM"
+
+    @field_validator("start", "end", mode="after")
+    @classmethod
+    def must_be_hhmm(cls, v: str) -> str:
+        """Reject malformed time strings at config load."""
+        parts = v.split(":")
+        if len(parts) != 2 or not all(p.isdigit() for p in parts):
+            raise ValueError(f"Time must be HH:MM, got {v!r}")
+        h, m = int(parts[0]), int(parts[1])
+        if h > 23 or m > 59:
+            raise ValueError(f"Time out of range: {v!r}")
+        return v
+
+    @model_validator(mode="after")
+    def start_must_differ_from_end(self) -> TimeWindow:
+        """Reject zero-length windows (start == end matches all departures)."""
+        if self.start == self.end:
+            raise ValueError(f"start and end must differ (got {self.start!r} for both)")
+        return self
+
+    @property
+    def start_seconds(self) -> int:
+        """Start time as seconds since midnight."""
+        h, m = self.start.split(":")
+        return int(h) * 3600 + int(m) * 60
+
+    @property
+    def end_seconds(self) -> int:
+        """End time as seconds since midnight."""
+        h, m = self.end.split(":")
+        return int(h) * 3600 + int(m) * 60
+
+    @property
+    def duration_hours(self) -> float:
+        """Window duration in hours (handles overnight wrap)."""
+        s, e = self.start_seconds, self.end_seconds
+        if e > s:
+            return (e - s) / 3600.0
+        return (86400 - s + e) / 3600.0
+
+
 class FrequencyConfig(BaseModel):
     """Transit frequency classification parameters."""
 
@@ -24,6 +72,17 @@ class FrequencyConfig(BaseModel):
     peak_am_start: str
     peak_am_end: str
     service_days: str = "weekday"  # "weekday", "saturday", or "sunday"
+    time_windows: list[TimeWindow] = []
+
+    @field_validator("time_windows", mode="after")
+    @classmethod
+    def unique_window_keys(cls, v: list[TimeWindow]) -> list[TimeWindow]:
+        """Reject duplicate time window keys."""
+        keys = [tw.key for tw in v]
+        if len(keys) != len(set(keys)):
+            dupes = [k for k in keys if keys.count(k) > 1]
+            raise ValueError(f"Duplicate time_window keys: {sorted(set(dupes))}")
+        return v
 
 
 class GridDefaultsConfig(BaseModel):

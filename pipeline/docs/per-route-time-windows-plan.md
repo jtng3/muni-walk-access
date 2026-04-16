@@ -146,6 +146,31 @@ If built:
 - **Config schema:** Define `time_windows` list shape in `FrequencyConfig` Pydantic model before Phase 1 starts.
 - **Test plan:** (1) Unit test time-window binning including >24h edge case, (2) unit test calendar filtering, (3) integration test new GTFS schema through lens.py and grid.py, (4) regression check that AM peak numbers match old pipeline output.
 
+## Phase 1 Code Review Findings (2026-04-15)
+
+**Reviewers:** Blind Hunter (adversarial, diff-only) + Edge Case Hunter (project-aware)
+
+### Fixed (Patch)
+
+- [x] **P1: Unique time_window keys validator** [config.py] — Duplicate keys would cause double-counting in `restratify_for_window`. Added `field_validator("time_windows")` to `FrequencyConfig` rejecting duplicates at config load.
+- [x] **P2: HH:MM format validation on TimeWindow.start/end** [config.py] — Malformed times like `"07:00:30"` would crash at runtime, not at config load. Added `field_validator("start", "end")` enforcing exactly HH:MM with range checks.
+- [x] **P3: Guard against start == end (zero-length window)** [config.py] — `start == end` makes `_bin_departure` match ALL departures via the else branch. Added `model_validator` rejecting it.
+- [x] **P4: Fill null route_short_name with route_id** [gtfs.py] — Some GTFS feeds have null `route_short_name`. Now falls back to `route_id` so the UI always has a display name.
+- [x] **P5: Clamp inf in best_route_headway_min** [gtfs.py] — `60.0 / 0.0` produced `inf`. Now uses `pl.when(_max_route_tph > 0)` guard, producing `None` instead of `inf`.
+
+### Deferred
+
+- [x] **D1: No overlap/gap validation for time windows** — First-match-wins is correct for current config (windows tile 24h). A pairwise overlap validator is non-trivial and not blocking. Revisit if config becomes user-editable.
+- [x] **D2: `map_elements` performance on hot path** — Two `map_elements` calls in v2 (binning + trips_per_hour). Could be vectorized with `pl.when().then()` chains. Not blocking — GTFS parse is a one-shot cached operation (~0.4s). Profile before optimizing.
+- [x] **D3: Cache key collision with dashed window keys** — Current keys use underscores so no issue. Using `|` separator would harden, but not urgent.
+
+### Dismissed (4)
+
+- Legacy v1 path broken — false positive, `all_hex_grids` IS assigned in the else block.
+- Partial cache write — already handled by AND condition in `fetch_gtfs_v2`.
+- Stratified cache only has default window — by design for debugging.
+- Schema version coupling — correct behavior, version reflects actual schema difference.
+
 ## Data Source
 
 - **GTFS zip** from `https://muni-gtfs.apps.sfmta.com/data/muni_gtfs-current.zip` (fixed in previous commit)

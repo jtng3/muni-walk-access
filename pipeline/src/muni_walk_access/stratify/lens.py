@@ -136,8 +136,19 @@ def aggregate_to_lenses(
     routing_result: pl.DataFrame,
     stops_df: pl.DataFrame,
     config: Config,
+    time_window: str | None = None,
 ) -> pl.DataFrame:
     """Spatially join routed addresses to equity-lens boundaries.
+
+    Args:
+        routing_result: Routed address DataFrame with nearest_stop_id.
+        stops_df: Stop frequency data. For v2 (multi-window), this is the
+            summary table with a ``time_window`` column — pass ``time_window``
+            to filter before joining.  For v1 (legacy), this has
+            ``trips_per_hour_peak`` and no time_window column.
+        config: Pipeline configuration.
+        time_window: If set, filter stops_df to this window before joining.
+            Required when stops_df has multiple rows per stop_id.
 
     Returns a Polars DataFrame with the original routing columns plus:
     ``neighborhood_id``, ``neighborhood_name``, ``ej_community``,
@@ -145,6 +156,7 @@ def aggregate_to_lenses(
 
     Addresses that fall outside all three boundaries are excluded with
     a log INFO message.
+
     """
     if len(routing_result) == 0:
         return routing_result.with_columns(
@@ -204,8 +216,22 @@ def aggregate_to_lenses(
         slugify_neighborhood
     )
 
-    # Join trips_per_hour_peak from stops via nearest_stop_id
-    stops_pd = stops_df.select(["stop_id", "trips_per_hour_peak"]).to_pandas()
+    # Prepare stop frequency data for join.
+    # v2 summary: stop_id, time_window, total_trips_per_hour, ...
+    # v1 legacy: stop_id, trips_per_hour_peak, ...
+    if "time_window" in stops_df.columns and time_window is not None:
+        # v2 path: filter to requested window, rename for downstream compat
+        window_stops = stops_df.filter(pl.col("time_window") == time_window)
+        stops_pd = window_stops.select(
+            [
+                "stop_id",
+                pl.col("total_trips_per_hour").alias("trips_per_hour_peak"),
+            ]
+        ).to_pandas()
+    else:
+        # v1 legacy path
+        stops_pd = stops_df.select(["stop_id", "trips_per_hour_peak"]).to_pandas()
+
     result_pd = result_pd.merge(
         stops_pd,
         left_on="nearest_stop_id",
@@ -227,6 +253,42 @@ def aggregate_to_lenses(
     ]
     keep = [c for c in orig_cols + new_cols if c in result_pd.columns]
     return pl.from_pandas(result_pd[keep])
+
+
+def restratify_for_window(
+    stratified: pl.DataFrame,
+    summary_df: pl.DataFrame,
+    time_window: str,
+) -> pl.DataFrame:
+    """Swap trips_per_hour_peak for a different time window.
+
+    Avoids re-running spatial joins.
+
+    Takes an already-stratified DataFrame (from ``aggregate_to_lenses``) and
+    replaces the ``trips_per_hour_peak`` column with values from a different
+    time window in the summary table. Much cheaper than re-running the full
+    spatial join pipeline.
+    """
+    window_stops = summary_df.filter(pl.col("time_window") == time_window)
+    freq_lookup = window_stops.select(
+        [
+            "stop_id",
+            pl.col("total_trips_per_hour").alias("_new_tph"),
+        ]
+    )
+
+    result = (
+        stratified.drop("trips_per_hour_peak")
+        .join(
+            freq_lookup,
+            left_on="nearest_stop_id",
+            right_on="stop_id",
+            how="left",
+        )
+        .rename({"_new_tph": "trips_per_hour_peak"})
+    )
+
+    return result
 
 
 def compute_lens_flags(

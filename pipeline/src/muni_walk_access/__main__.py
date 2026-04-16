@@ -32,11 +32,15 @@ from muni_walk_access.ingest.datasf import (
     get_datasf_timestamps,
     was_fallback_used,
 )
-from muni_walk_access.ingest.gtfs import fetch_gtfs
+from muni_walk_access.ingest.gtfs import fetch_gtfs, fetch_gtfs_v2
 from muni_walk_access.network.build import build_network
 from muni_walk_access.route.nearest_stop import route_nearest_stops
 from muni_walk_access.stratify.grid import compute_grid, compute_hex_grids
-from muni_walk_access.stratify.lens import aggregate_to_lenses, compute_lens_flags
+from muni_walk_access.stratify.lens import (
+    aggregate_to_lenses,
+    compute_lens_flags,
+    restratify_for_window,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,7 @@ def _run_stratify(
     result: pl.DataFrame,
     stops_df: pl.DataFrame,
     config: Config,
+    time_window: str | None = None,
 ) -> tuple[
     pl.DataFrame,
     list[dict[str, object]],
@@ -55,15 +60,23 @@ def _run_stratify(
 ]:
     """Run stratify_lens and stratify_grid stages.
 
+    Args:
+        result: Routed address DataFrame.
+        stops_df: Stop frequency DataFrame.
+        config: Pipeline configuration.
+        time_window: If set, filter stops_df to this window before joining.
+
     Returns (stratified, lens_flags_data, neighborhoods, city_wide,
     t_lens, t_grid).
+
     """
-    logger.info("Stage stratify_lens: starting")
+    tw_label = f" [{time_window}]" if time_window else ""
+    logger.info("Stage stratify_lens%s: starting", tw_label)
     t0 = time.perf_counter()
-    stratified = aggregate_to_lenses(result, stops_df, config)
+    stratified = aggregate_to_lenses(result, stops_df, config, time_window=time_window)
     lens_flags_data = compute_lens_flags(stratified)
     t_lens = time.perf_counter() - t0
-    logger.info("Stage stratify_lens: %.1fs", t_lens)
+    logger.info("Stage stratify_lens%s: %.1fs", tw_label, t_lens)
 
     logger.info("Stage stratify_grid: starting")
     t0 = time.perf_counter()
@@ -266,13 +279,30 @@ def _run_pipeline(
     t_addresses = time.perf_counter() - t0
     logger.info("Stage address_fetch: %.1fs", t_addresses)
 
+    time_windows = config.frequency.time_windows
+    use_v2 = bool(time_windows)
+
     t0 = time.perf_counter()
-    stops_df, gtfs_sha256 = fetch_gtfs(config)
+    if use_v2:
+        detail_df, summary_df, gtfs_sha256 = fetch_gtfs_v2(config)
+        # For routing, we need a single stops DataFrame with coordinates.
+        # Use the summary filtered to am_peak (or first window) for routing —
+        # routing only needs stop_id, stop_lat, stop_lon, trips_per_hour_peak.
+        default_window = time_windows[0].key
+        routing_stops = (
+            summary_df.filter(pl.col("time_window") == default_window)
+            .rename({"total_trips_per_hour": "trips_per_hour_peak"})
+            .select(["stop_id", "trips_per_hour_peak", "stop_lat", "stop_lon"])
+        )
+        stop_count = routing_stops["stop_id"].n_unique()
+    else:
+        routing_stops, gtfs_sha256 = fetch_gtfs(config)
+        stop_count = len(routing_stops)
     t_gtfs = time.perf_counter() - t0
     logger.info("Stage gtfs_fetch: %.1fs", t_gtfs)
 
     t0 = time.perf_counter()
-    result = route_nearest_stops(net, addresses, stops_df, config)
+    result = route_nearest_stops(net, addresses, routing_stops, config)
     t_routing = time.perf_counter() - t0
     logger.info("Stage routing: %.1fs", t_routing)
 
@@ -293,17 +323,43 @@ def _run_pipeline(
     )
     cache.put("routing", "routing-result", buf.getvalue(), "parquet")
 
-    # Stratify stages (lens + grid)
-    stratified, _flags, neighborhoods, city_wide, t_lens, t_grid = _run_stratify(
-        result, stops_df, config
-    )
+    if use_v2:
+        # --- Multi-window path ---
+        # Stratify once with am_peak for the neighbourhood grid + lens flags
+        # (these don't change per window — the spatial join is window-independent)
+        stratified, _flags, neighborhoods, city_wide, t_lens, t_grid = _run_stratify(
+            result, summary_df, config, time_window=default_window
+        )
 
-    # Hex grids (resolution picker, resolutions 7-11)
-    logger.info("Stage stratify_hex: starting")
-    t0 = time.perf_counter()
-    hex_grids = compute_hex_grids(stratified, config)
-    t_hex = time.perf_counter() - t0
-    logger.info("Stage stratify_hex: %.1fs", t_hex)
+        # Hex grids: loop once per time window
+        # Reuse the spatial join from _run_stratify — only swap the frequency column
+        logger.info("Stage stratify_hex: starting (%d windows)", len(time_windows))
+        t0 = time.perf_counter()
+        all_hex_grids: dict[str, dict[int, list[HexCell]]] = {}
+        for tw in time_windows:
+            if tw.key == default_window:
+                tw_stratified = stratified  # already computed above
+            else:
+                tw_stratified = restratify_for_window(stratified, summary_df, tw.key)
+            tw_hex = compute_hex_grids(tw_stratified, config)
+            all_hex_grids[tw.key] = tw_hex
+            logger.info(
+                "  Hex grids [%s]: %s",
+                tw.key,
+                {r: len(cells) for r, cells in tw_hex.items()},
+            )
+        t_hex = time.perf_counter() - t0
+        logger.info("Stage stratify_hex: %.1fs (%d windows)", t_hex, len(time_windows))
+    else:
+        # --- Legacy single-window path ---
+        stratified, _flags, neighborhoods, city_wide, t_lens, t_grid = _run_stratify(
+            result, routing_stops, config
+        )
+        logger.info("Stage stratify_hex: starting")
+        t0 = time.perf_counter()
+        all_hex_grids = {"_legacy": compute_hex_grids(stratified, config)}
+        t_hex = time.perf_counter() - t0
+        logger.info("Stage stratify_hex: %.1fs", t_hex)
 
     # Collect provenance after stratify (boundary datasets are fetched there)
     datasf_timestamps = get_datasf_timestamps()
@@ -314,10 +370,22 @@ def _run_pipeline(
 
     # Emit stage
     output_dir = Path(__file__).parent.parent.parent.parent
+    # For v2, emit per-window hex files; for legacy, emit without time_window
+    hex_grids_for_emit: dict[int, list[HexCell]] = {}
+    if use_v2:
+        # Write per-window hex JSON files
+        for tw_key, tw_hex in all_hex_grids.items():
+            if tw_hex:
+                write_grid_hex_json(
+                    tw_hex, config, run_id, output_dir, time_window=tw_key
+                )
+    else:
+        hex_grids_for_emit = all_hex_grids.get("_legacy", {})
+
     t_emit = _run_emit(
         neighborhoods,
         city_wide,
-        hex_grids,
+        hex_grids_for_emit if not use_v2 else {},
         stratified,
         config,
         run_id,
@@ -346,7 +414,7 @@ def _run_pipeline(
         t_total=t_total,
         peak_mb=peak_mb,
         address_count=len(addresses),
-        stop_count=len(stops_df),
+        stop_count=stop_count,
         result_count=len(result),
         sample_mode=config.dev.sample_size is not None,
         sample_n=config.dev.sample_size,
@@ -355,7 +423,7 @@ def _run_pipeline(
     _print_summary(
         config=config,
         address_count=len(addresses),
-        stop_count=len(stops_df),
+        stop_count=stop_count,
         result_count=len(result),
         nbhd_count=len(neighborhoods),
         city_wide=city_wide,

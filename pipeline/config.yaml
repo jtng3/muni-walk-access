@@ -8,6 +8,12 @@ frequency:
   peak_window: am_peak
   peak_am_start: "07:00"
   peak_am_end: "09:00"
+  time_windows:
+    - { key: am_peak,   label: "AM Rush",    start: "06:00", end: "09:00" }
+    - { key: midday,    label: "Midday",     start: "09:00", end: "15:00" }
+    - { key: pm_peak,   label: "PM Rush",    start: "15:00", end: "19:00" }
+    - { key: evening,   label: "Evening",    start: "19:00", end: "00:00" }
+    - { key: overnight, label: "Overnight",  start: "00:00", end: "06:00" }
 
 grid:
   frequency_threshold_min: [4, 6, 8, 10, 12, 15, 20]

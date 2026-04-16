@@ -26,7 +26,7 @@ def _make_mock_addresses(n: int = 5) -> pl.DataFrame:
 
 
 def _make_mock_stops(n: int = 3) -> pl.DataFrame:
-    """Minimal stops DataFrame for pipeline mocking."""
+    """Minimal stops DataFrame for pipeline mocking (v1 legacy)."""
     return pl.DataFrame(
         {
             "stop_id": [f"S{i}" for i in range(n)],
@@ -35,6 +35,42 @@ def _make_mock_stops(n: int = 3) -> pl.DataFrame:
             "trips_per_hour_peak": [4.0] * n,
         }
     )
+
+
+def _make_mock_stops_v2(
+    n: int = 3,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Mock v2 detail + summary DataFrames for pipeline mocking."""
+    windows = ["am_peak", "midday", "pm_peak", "evening", "overnight"]
+    # Summary: one row per stop per window
+    rows = []
+    for w in windows:
+        for i in range(n):
+            rows.append(
+                {
+                    "stop_id": f"S{i}",
+                    "time_window": w,
+                    "total_trips_per_hour": 4.0,
+                    "best_route_headway_min": 15.0,
+                    "route_count": 2,
+                    "stop_lat": 37.78 + i * 0.002,
+                    "stop_lon": -122.41 + i * 0.002,
+                }
+            )
+    summary = pl.DataFrame(rows)
+    # Detail: one row per stop per route per window
+    detail = pl.DataFrame(
+        {
+            "stop_id": [f"S{i % n}" for i in range(n * len(windows))],
+            "route_id": ["R1"] * (n * len(windows)),
+            "route_short_name": ["1"] * (n * len(windows)),
+            "time_window": [w for w in windows for _ in range(n)],
+            "trips_per_hour": [4.0] * (n * len(windows)),
+            "stop_lat": [37.78 + (i % n) * 0.002 for i in range(n * len(windows))],
+            "stop_lon": [-122.41 + (i % n) * 0.002 for i in range(n * len(windows))],
+        }
+    )
+    return detail, summary
 
 
 def _make_mock_result(n: int = 5) -> pl.DataFrame:
@@ -111,7 +147,7 @@ class TestMainOrchestration:
 
         mock_net = MagicMock()
         mock_addresses = _make_mock_addresses(5)
-        mock_stops = _make_mock_stops()
+        mock_detail, mock_summary = _make_mock_stops_v2()
         mock_result = _make_mock_result(5)
 
         with (
@@ -124,8 +160,8 @@ class TestMainOrchestration:
                 return_value=mock_addresses,
             ),
             patch(
-                "muni_walk_access.__main__.fetch_gtfs",
-                return_value=(mock_stops, "abcdef01"),
+                "muni_walk_access.__main__.fetch_gtfs_v2",
+                return_value=(mock_detail, mock_summary, "abcdef01"),
             ),
             patch(
                 "muni_walk_access.__main__.route_nearest_stops",
@@ -135,6 +171,14 @@ class TestMainOrchestration:
             patch(
                 "muni_walk_access.__main__._run_stratify",
                 return_value=_make_mock_stratify_return(mock_result),
+            ),
+            patch(
+                "muni_walk_access.__main__.restratify_for_window",
+                return_value=_make_mock_stratify_return(mock_result)[0],
+            ),
+            patch(
+                "muni_walk_access.__main__.compute_hex_grids",
+                return_value={},
             ),
             patch("muni_walk_access.__main__._run_emit", return_value=0.1),
         ):
@@ -154,7 +198,7 @@ class TestMainOrchestration:
 
         mock_net = MagicMock()
         mock_addresses = _make_mock_addresses(5)
-        mock_stops = _make_mock_stops()
+        mock_detail, mock_summary = _make_mock_stops_v2()
         mock_result = _make_mock_result(5)
 
         with (
@@ -167,8 +211,8 @@ class TestMainOrchestration:
                 return_value=mock_addresses,
             ) as m_addr,
             patch(
-                "muni_walk_access.__main__.fetch_gtfs",
-                return_value=(mock_stops, "abcdef01"),
+                "muni_walk_access.__main__.fetch_gtfs_v2",
+                return_value=(mock_detail, mock_summary, "abcdef01"),
             ) as m_gtfs,
             patch(
                 "muni_walk_access.__main__.route_nearest_stops",
@@ -179,6 +223,14 @@ class TestMainOrchestration:
                 "muni_walk_access.__main__._run_stratify",
                 return_value=_make_mock_stratify_return(mock_result),
             ) as m_strat,
+            patch(
+                "muni_walk_access.__main__.restratify_for_window",
+                return_value=_make_mock_stratify_return(mock_result)[0],
+            ),
+            patch(
+                "muni_walk_access.__main__.compute_hex_grids",
+                return_value={},
+            ),
             patch("muni_walk_access.__main__._run_emit", return_value=0.1) as m_emit,
         ):
             main()
@@ -203,6 +255,7 @@ class TestMainOrchestration:
         )
 
         mock_addresses = _make_mock_addresses(5)
+        mock_detail, mock_summary = _make_mock_stops_v2()
         mock_result = _make_mock_result(5)
 
         with (
@@ -215,8 +268,8 @@ class TestMainOrchestration:
                 return_value=mock_addresses,
             ),
             patch(
-                "muni_walk_access.__main__.fetch_gtfs",
-                return_value=(_make_mock_stops(), "abcdef01"),
+                "muni_walk_access.__main__.fetch_gtfs_v2",
+                return_value=(mock_detail, mock_summary, "abcdef01"),
             ),
             patch(
                 "muni_walk_access.__main__.route_nearest_stops",
@@ -226,6 +279,14 @@ class TestMainOrchestration:
             patch(
                 "muni_walk_access.__main__._run_stratify",
                 return_value=_make_mock_stratify_return(mock_result),
+            ),
+            patch(
+                "muni_walk_access.__main__.restratify_for_window",
+                return_value=_make_mock_stratify_return(mock_result)[0],
+            ),
+            patch(
+                "muni_walk_access.__main__.compute_hex_grids",
+                return_value={},
             ),
             patch("muni_walk_access.__main__._run_emit", return_value=0.1),
         ):

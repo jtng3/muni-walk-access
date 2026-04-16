@@ -10,22 +10,22 @@
 
 - Mode: full
 - Addresses: 232,505
-- Stops: 3,181
+- Stops: 3,172
 - Routing results: 232,505
 
 ## Stage Timing
 
 | Stage | Time (s) | Time (min) |
 |---|---|---|
-| network_build | 24.1 | 0.40 |
+| network_build | 26.7 | 0.44 |
 | address_fetch | 1.7 | 0.03 |
-| gtfs_fetch | 75.6 | 1.26 |
+| gtfs_fetch | 0.6 | 0.01 |
 | routing | 3.1 | 0.05 |
 | stratify_lens | 1.3 | 0.02 |
 | stratify_grid | 0.6 | 0.01 |
-| stratify_hex | 1.6 | 0.03 |
-| emit | 0.5 | 0.01 |
-| **Total** | **109.4** | **1.82** |
+| stratify_hex | 7.0 | 0.12 |
+| emit | 0.4 | 0.01 |
+| **Total** | **43.0** | **0.72** |
 
 ## Memory
 
@@ -34,6 +34,6 @@
 
 ## Budget Projection
 
-- Total time: 1.82 min
+- Total time: 0.72 min
 - Gate threshold: 20 min (within 30-min GHA budget)
-- **Verdict: PASS: 1.8 min — within gate threshold (< 20 min)**
+- **Verdict: PASS: 0.7 min — within gate threshold (< 20 min)**
