@@ -19,7 +19,7 @@ const config = configRaw as unknown as ConfigSnapshot;
   <!-- Map hero: full-bleed, no container constraints -->
   <div id="top" class="relative">
     <InteractiveView client:only="react" data={grid} />
-    <DataSourceDates client:only="react" config={config} className="absolute bottom-4 right-28 z-10" />
+    <DataSourceDates client:only="react" config={config} className="absolute bottom-4 right-28 z-10 hidden sm:inline" />
   </div>
 
   <!-- Neighborhoods section with reactive controls -->

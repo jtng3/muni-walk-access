@@ -146,7 +146,7 @@ export default function NeighborhoodSection({
         <DataSourceDates config={config} />
       </div>
       {/* Sticky toolbar — borderless, Linear-style */}
-      <div className="sticky top-0 z-20 mb-6 bg-background/95 backdrop-blur-sm pb-1">
+      <div className="sticky top-12 z-20 mb-6 bg-background/95 backdrop-blur-sm pb-1">
         <NeighborhoodControls
           axes={activeGrid.axes}
           defaults={activeGrid.defaults}

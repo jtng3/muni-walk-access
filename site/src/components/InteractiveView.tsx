@@ -354,7 +354,9 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
           </button>
         </div>
       </div>
-      <DevOverlay flags={devFlags} onChange={setDevFlags} />
+      <div className="hidden sm:block">
+        <DevOverlay flags={devFlags} onChange={setDevFlags} />
+      </div>
     </div>
   );
 }

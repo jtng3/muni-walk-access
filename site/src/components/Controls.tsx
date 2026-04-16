@@ -105,7 +105,7 @@ export default function Controls({
     return (
       <button
         onClick={() => setOpen(true)}
-        className="absolute bottom-4 left-4 z-10 flex items-center gap-2 rounded-lg bg-card/60 backdrop-blur-md border border-border px-3 py-2 shadow-lg hover:bg-card/70 transition-colors cursor-pointer"
+        className="absolute bottom-4 left-2 sm:left-4 z-10 flex items-center gap-2 rounded-lg bg-card/60 backdrop-blur-md border border-border px-3 py-2 shadow-lg hover:bg-card/70 transition-colors cursor-pointer"
         aria-label="Open controls"
       >
         <span className="text-lg font-semibold text-foreground">
@@ -125,7 +125,7 @@ export default function Controls({
   const cellCount = HEX_RES_CELLS[hexRes];
 
   return (
-    <div className="absolute bottom-4 left-4 z-10 w-72 max-w-[calc(100vw-2rem)] rounded-lg bg-card/60 backdrop-blur-md border border-border p-4 shadow-lg space-y-3">
+    <div className="absolute bottom-4 left-2 right-2 sm:left-4 sm:right-auto sm:w-72 z-10 rounded-lg bg-card/60 backdrop-blur-md border border-border p-4 shadow-lg space-y-3">
       {/* Compact headline + collapse button */}
       <div className="flex items-start justify-between">
         <div>
