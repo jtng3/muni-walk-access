@@ -569,12 +569,12 @@ class TestComputeHexGrids:
         result = compute_hex_grids(strat, config, resolutions=[7, 8])
         assert set(result.keys()) == {7, 8}
 
-    def test_default_resolutions_4_through_10(self) -> None:
-        """Default resolutions are 4-10 inclusive."""
+    def test_default_resolutions_7_through_11(self) -> None:
+        """Default resolutions are 7-11 inclusive."""
         config = _full_config()
         strat = _make_stratified_multi([37.75], [-122.45])
         result = compute_hex_grids(strat, config)
-        assert set(result.keys()) == set(range(4, 11))
+        assert set(result.keys()) == set(range(7, 12))
 
     def test_cell_ids_valid_h3_at_correct_resolution(self) -> None:
         """All returned cell IDs are valid H3 cells at their stated resolution."""

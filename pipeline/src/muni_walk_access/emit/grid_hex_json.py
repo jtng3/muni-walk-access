@@ -15,16 +15,15 @@ from muni_walk_access.emit.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Expected cell counts per H3 resolution over SF's land area.
+# Expected *occupied* cell counts per H3 resolution (cells with ≥1 SF address).
 # Warning fires if actual count deviates by more than 2× from expected.
+# Update these after any significant address-dataset refresh.
 _EXPECTED_CELL_COUNTS: dict[int, int] = {
-    4: 5,
-    5: 15,
-    6: 80,
-    7: 300,
-    8: 2_000,
-    9: 14_000,
-    10: 100_000,
+    7: 29,
+    8: 161,
+    9: 896,
+    10: 5_245,
+    11: 28_709,
 }
 
 

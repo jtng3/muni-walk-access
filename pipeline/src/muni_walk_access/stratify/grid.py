@@ -152,14 +152,14 @@ def compute_hex_grids(
             ``latitude``, ``longitude``, ``walk_minutes``,
             ``trips_per_hour_peak`` columns.
         config: Pipeline configuration with grid axes.
-        resolutions: H3 resolutions to compute (default: 4-10 inclusive).
+        resolutions: H3 resolutions to compute (default: 7-11 inclusive).
 
     Returns:
         Mapping of resolution → sorted list of ``HexCell`` models.
 
     """
     if resolutions is None:
-        resolutions = list(range(4, 11))
+        resolutions = list(range(7, 12))
 
     freq_thresholds = config.grid.frequency_threshold_min
     walk_thresholds = config.grid.walking_minutes

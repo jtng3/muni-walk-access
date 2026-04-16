@@ -298,7 +298,7 @@ def _run_pipeline(
         result, stops_df, config
     )
 
-    # Hex grids (resolution picker, resolutions 4-10)
+    # Hex grids (resolution picker, resolutions 7-11)
     logger.info("Stage stratify_hex: starting")
     t0 = time.perf_counter()
     hex_grids = compute_hex_grids(stratified, config)
