@@ -5,11 +5,12 @@ import { Map as MapGL, Source, Layer } from "react-map-gl/maplibre";
 import { Protocol } from "pmtiles";
 import { layers as pmLayers, LIGHT, DARK } from "@protomaps/basemaps";
 import { VIRIDIS_STOPS } from "@/lib/choropleth";
-import type { GridSchema } from "@/lib/types";
+import type { GridSchema, HexGridSchema } from "@/lib/types";
 import type {
   FillLayerSpecification,
   LineLayerSpecification,
   StyleSpecification,
+  SymbolLayerSpecification,
   GeoJSONSourceSpecification,
 } from "maplibre-gl";
 import type { DevFlags } from "./DevOverlay";
@@ -112,21 +113,25 @@ const VIRIDIS_COLOR_EXPR = [
 function buildChoroplethFill(
   isDark: boolean,
   buildingGlow?: boolean,
+  viewMode: "summary" | "detailed" = "summary",
 ): FillLayerSpecification {
+  const opacity =
+    viewMode === "detailed"
+      ? 0
+      : buildingGlow
+        ? isDark
+          ? 0.35
+          : 0.5
+        : isDark
+          ? 0.22
+          : 0.4;
   return {
     id: "neighborhoods-fill",
     type: "fill",
     source: "neighborhoods",
     paint: {
       "fill-color": VIRIDIS_COLOR_EXPR,
-      // When buildingGlow is on, boost fill so the ground color is more prominent
-      "fill-opacity": buildingGlow
-        ? isDark
-          ? 0.35
-          : 0.5
-        : isDark
-          ? 0.22
-          : 0.4,
+      "fill-opacity": opacity,
     },
   };
 }
@@ -160,6 +165,34 @@ function buildChoroplethLine(isDark: boolean): LineLayerSpecification {
   };
 }
 
+// Neighbourhood name + percentage labels at polygon centroids.
+// text-allow-overlap + text-ignore-placement: all 41 labels must be visible.
+function buildLabelsLayer(isDark: boolean): SymbolLayerSpecification {
+  return {
+    id: "neighborhood-labels",
+    type: "symbol",
+    source: "neighborhoods",
+    layout: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- MapLibre expression type
+      "text-field": [
+        "concat",
+        ["get", "name"],
+        "\n",
+        ["to-string", ["round", ["*", 100, ["get", "pct_at_defaults"]]]],
+        "%",
+      ] as any,
+      "text-size": 12,
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: {
+      "text-color": isDark ? "#e2e8f0" : "#1e293b",
+      "text-halo-color": isDark ? "rgba(0,0,0,0.7)" : "white",
+      "text-halo-width": 2,
+    },
+  };
+}
+
 interface MapInnerProps {
   data: GridSchema;
   freqIdx: number;
@@ -167,6 +200,9 @@ interface MapInnerProps {
   isDark: boolean;
   devFlags: DevFlags;
   onError?: () => void;
+  viewMode: "summary" | "detailed";
+  hexBaseFC: GeoJSON.FeatureCollection | null;
+  hexData: HexGridSchema | null;
 }
 
 export default function MapInner({
@@ -176,6 +212,9 @@ export default function MapInner({
   isDark,
   devFlags,
   onError,
+  viewMode,
+  hexBaseFC,
+  hexData,
 }: MapInnerProps) {
   const loadedRef = useRef(false);
 
@@ -184,11 +223,13 @@ export default function MapInner({
     [isDark, devFlags],
   );
   const fillSpec = useMemo(
-    () => buildChoroplethFill(isDark, devFlags.buildingGlow),
-    [isDark, devFlags.buildingGlow],
+    () => buildChoroplethFill(isDark, devFlags.buildingGlow, viewMode),
+    [isDark, devFlags.buildingGlow, viewMode],
   );
   const glowSpec = useMemo(() => buildGlowBorder(isDark), [isDark]);
   const lineSpec = useMemo(() => buildChoroplethLine(isDark), [isDark]);
+  const labelsSpec = useMemo(() => buildLabelsLayer(isDark), [isDark]);
+
   const [baseGeoJSON, setBaseGeoJSON] =
     useState<GeoJSON.FeatureCollection | null>(null);
 
@@ -231,7 +272,7 @@ export default function MapInner({
     return () => cancelAnimationFrame(rafRef.current);
   }, [freqIdx, walkIdx]);
 
-  // Produce updated FeatureCollection with recolored pct_at_defaults
+  // Neighbourhood choropleth — recolour pct_at_defaults on slider drag (rAF-throttled)
   const sourceData = useMemo<
     GeoJSON.FeatureCollection | GeoJSONSourceSpecification["data"]
   >(() => {
@@ -260,6 +301,27 @@ export default function MapInner({
     data.neighborhoods,
     idxById,
   ]);
+
+  // Hex fill — recolour pct_at_defaults on slider drag (rAF-throttled, same path as above)
+  // feature[i] corresponds to hexData.cells[i] — guaranteed by InteractiveView build order.
+  const hexSourceData = useMemo<GeoJSON.FeatureCollection | null>(() => {
+    if (viewMode !== "detailed" || !hexBaseFC || !hexData) return null;
+    return {
+      ...hexBaseFC,
+      features: hexBaseFC.features.map((f, i) => {
+        const cell = hexData.cells[i];
+        if (!cell) return f;
+        return {
+          ...f,
+          properties: {
+            ...f.properties,
+            pct_at_defaults:
+              cell.pct_within[rendered.freqIdx][rendered.walkIdx],
+          },
+        };
+      }),
+    };
+  }, [viewMode, hexBaseFC, hexData, rendered.freqIdx, rendered.walkIdx]);
 
   useEffect(() => {
     const protocol = new Protocol();
@@ -297,6 +359,23 @@ export default function MapInner({
       mapStyle={mapStyle}
       style={{ width: "100%", height: "100%" }}
     >
+      {/* Hex fill — bottom layer; only rendered when data is ready and in Detailed mode.
+          beforeId ensures it sits below the neighbourhood fill across sources. */}
+      {hexSourceData !== null && (
+        <Source id="hex" type="geojson" data={hexSourceData}>
+          <Layer
+            id="hex-fill"
+            type="fill"
+            beforeId="neighborhoods-fill"
+            paint={{
+              "fill-color": VIRIDIS_COLOR_EXPR,
+              "fill-opacity": 0.75,
+            }}
+          />
+        </Source>
+      )}
+
+      {/* Neighbourhood layers (fill → glow → line → labels) */}
       <Source id="neighborhoods" type="geojson" data={sourceData}>
         <Layer {...fillSpec} />
         {devFlags.buildingGlow && (
@@ -314,6 +393,7 @@ export default function MapInner({
         )}
         {devFlags.glowBorders && <Layer {...glowSpec} />}
         <Layer {...lineSpec} />
+        <Layer {...labelsSpec} />
       </Source>
     </MapGL>
   );

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { ChevronDown, Settings2 } from "lucide-react";
 import type { GridAxes, GridDefaults } from "@/lib/types";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import FrequencySlider from "./FrequencySlider";
 import WalkingTimeSlider from "./WalkingTimeSlider";
 import ThemeToggle from "./ThemeToggle";
@@ -16,6 +18,17 @@ function formatMiles(minutes: number): string {
   return MILE_FRACTIONS[minutes] ?? `${(minutes / 20).toFixed(1)}`;
 }
 
+// Cell counts per resolution from pipeline output (addresses only)
+const HEX_RES_CELLS: Record<number, number> = {
+  4: 1,
+  5: 3,
+  6: 8,
+  7: 29,
+  8: 161,
+  9: 896,
+  10: 5245,
+};
+
 interface ControlsProps {
   axes: GridAxes;
   defaults: GridDefaults;
@@ -29,6 +42,12 @@ interface ControlsProps {
   freqMin: number;
   walkMin: number;
   totalAddresses: number;
+  viewMode: "summary" | "detailed";
+  onViewModeChange: (mode: "summary" | "detailed") => void;
+  hexRes: number;
+  onHexResChange: (res: number) => void;
+  hexLoading: boolean;
+  failedResolutions: Set<number>;
 }
 
 export default function Controls({
@@ -44,6 +63,12 @@ export default function Controls({
   freqMin,
   walkMin,
   totalAddresses,
+  viewMode,
+  onViewModeChange,
+  hexRes,
+  onHexResChange,
+  hexLoading,
+  failedResolutions,
 }: ControlsProps) {
   const [open, setOpen] = useState(true);
   const formattedPct = Math.round(pct * 100);
@@ -66,6 +91,8 @@ export default function Controls({
       </button>
     );
   }
+
+  const cellCount = HEX_RES_CELLS[hexRes];
 
   return (
     <div className="absolute bottom-4 left-4 z-10 w-72 max-w-[calc(100vw-2rem)] rounded-lg bg-card/80 backdrop-blur-md border border-border p-4 shadow-lg space-y-3">
@@ -109,6 +136,107 @@ export default function Controls({
       <Separator />
 
       <ThemeToggle isDark={isDark} onToggle={onThemeToggle} />
+
+      <Separator />
+
+      {/* Summary / Detailed toggle */}
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">View</p>
+        <div className="flex gap-2">
+          <Button
+            variant={viewMode === "summary" ? "default" : "outline"}
+            size="sm"
+            className="flex-1"
+            onClick={() => onViewModeChange("summary")}
+            aria-pressed={viewMode === "summary"}
+          >
+            Summary
+          </Button>
+          <Button
+            variant={viewMode === "detailed" ? "default" : "outline"}
+            size="sm"
+            className="flex-1"
+            onClick={() => onViewModeChange("detailed")}
+            aria-pressed={viewMode === "detailed"}
+          >
+            Detailed
+          </Button>
+        </div>
+      </div>
+
+      {/* Resolution picker — only in Detailed mode */}
+      {viewMode === "detailed" && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-foreground">
+              Resolution {hexRes}
+              {cellCount !== undefined && (
+                <span className="font-normal text-muted-foreground">
+                  {" "}
+                  ({cellCount.toLocaleString()} hexes)
+                </span>
+              )}
+            </label>
+            {hexLoading && (
+              <span className="text-xs text-muted-foreground">Loading…</span>
+            )}
+          </div>
+          {hexRes === 10 && (
+            <p className="text-[10px] text-muted-foreground/70">
+              Large download (5 MB)
+            </p>
+          )}
+          {failedResolutions.has(hexRes) && (
+            <p className="text-[10px] text-destructive/80">
+              Run pipeline to generate r{hexRes} data
+            </p>
+          )}
+          <Slider
+            min={4}
+            max={10}
+            step={1}
+            value={[hexRes]}
+            onValueChange={(v) => {
+              const res = Array.isArray(v) ? v[0] : v;
+              if (res !== undefined && !failedResolutions.has(res)) {
+                onHexResChange(res);
+              }
+            }}
+            disabled={hexLoading}
+            getAriaValueText={() => `Resolution ${hexRes}`}
+          />
+          {/* Resolution tick marks */}
+          <div className="relative mt-1 h-4" aria-hidden="true">
+            {[4, 5, 6, 7, 8, 9, 10].map((res) => {
+              const idx = res - 4;
+              const pct = (idx / 6) * 100;
+              const align =
+                idx === 0
+                  ? ""
+                  : idx === 6
+                    ? "-translate-x-full"
+                    : "-translate-x-1/2";
+              const isFailed = failedResolutions.has(res);
+              const isCurrent = res === hexRes;
+              return (
+                <span
+                  key={res}
+                  className={`absolute text-[10px] ${align} ${
+                    isFailed
+                      ? "line-through text-muted-foreground/50"
+                      : isCurrent
+                        ? "font-semibold text-foreground"
+                        : "text-muted-foreground"
+                  }`}
+                  style={{ left: `${pct}%` }}
+                >
+                  {res}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

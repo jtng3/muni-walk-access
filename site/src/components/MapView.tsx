@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useCallback } from "react";
 import { ErrorBoundary } from "@/lib/ErrorBoundary";
 import MapSkeleton from "./MapSkeleton";
 import MapFallback from "./MapFallback";
-import type { GridSchema } from "@/lib/types";
+import type { GridSchema, HexGridSchema } from "@/lib/types";
 import type { DevFlags } from "./DevOverlay";
 
 const LazyMap = lazy(() => import("./MapInner"));
@@ -13,6 +13,9 @@ interface MapViewProps {
   walkIdx: number;
   isDark: boolean;
   devFlags: DevFlags;
+  viewMode: "summary" | "detailed";
+  hexBaseFC: GeoJSON.FeatureCollection | null;
+  hexData: HexGridSchema | null;
 }
 
 export default function MapView({
@@ -21,6 +24,9 @@ export default function MapView({
   walkIdx,
   isDark,
   devFlags,
+  viewMode,
+  hexBaseFC,
+  hexData,
 }: MapViewProps) {
   const [runtimeError, setRuntimeError] = useState(false);
   const handleError = useCallback(() => setRuntimeError(true), []);
@@ -39,6 +45,9 @@ export default function MapView({
           isDark={isDark}
           devFlags={devFlags}
           onError={handleError}
+          viewMode={viewMode}
+          hexBaseFC={hexBaseFC}
+          hexData={hexData}
         />
       </Suspense>
     </ErrorBoundary>

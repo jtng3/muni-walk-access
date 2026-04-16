@@ -6,9 +6,9 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "predev": "node scripts/ensure-data.mjs",
+    "predev": "node scripts/ensure-data.mjs && node scripts/copy-hex-to-public.mjs",
     "dev": "astro dev",
-    "prebuild": "node scripts/ensure-data.mjs",
+    "prebuild": "node scripts/ensure-data.mjs && node scripts/copy-hex-to-public.mjs",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
@@ -25,6 +25,7 @@
     "astro": "^6.1.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "h3-js": "^4.4.0",
     "lucide-react": "^1.8.0",
     "maplibre-gl": "^5.23.0",
     "pmtiles": "^4.4.1",
