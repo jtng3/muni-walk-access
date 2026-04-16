@@ -23,7 +23,10 @@ const { variant, id, name, pctAtDefaults, population, lensFlags } = Astro.props;
     class="group/card flex flex-col gap-4 overflow-hidden rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10 shadow-sm md:col-span-2 lg:col-span-full"
   >
     <div class="px-4 space-y-1">
-      <h3 class="font-heading text-xl font-semibold">{name}</h3>
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="font-heading text-xl font-semibold">{name}</h3>
+        <LensBadge client:visible flags={lensFlags} />
+      </div>
       <div class="flex items-center gap-3">
         <span
           class="text-3xl font-semibold tabular-nums"
@@ -35,7 +38,6 @@ const { variant, id, name, pctAtDefaults, population, lensFlags } = Astro.props;
         <span class="text-sm text-muted-foreground">
           of {population.toLocaleString("en-US")} residents within walking distance
         </span>
-        <LensBadge client:visible flags={lensFlags} />
       </div>
     </div>
     <div class="px-4">
@@ -55,7 +57,10 @@ const { variant, id, name, pctAtDefaults, population, lensFlags } = Astro.props;
     class="group/card flex flex-col gap-4 overflow-hidden rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10 shadow-sm"
   >
     <div class="px-4">
-      <h3 class="font-heading text-base font-medium">{name}</h3>
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="font-heading text-base font-medium">{name}</h3>
+        <LensBadge client:visible flags={lensFlags} />
+      </div>
     </div>
     <div class="px-4 flex items-center justify-between">
       <span
@@ -68,7 +73,6 @@ const { variant, id, name, pctAtDefaults, population, lensFlags } = Astro.props;
       <span class="text-sm text-muted-foreground">
         {population.toLocaleString("en-US")} residents
       </span>
-      <LensBadge client:visible flags={lensFlags} />
     </div>
   </article>
 )}
