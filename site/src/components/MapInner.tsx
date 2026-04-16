@@ -115,16 +115,18 @@ function buildChoroplethFill(
   buildingGlow?: boolean,
   viewMode: "summary" | "detailed" = "summary",
 ): FillLayerSpecification {
-  const opacity =
-    viewMode === "detailed"
-      ? 0
-      : buildingGlow
-        ? isDark
-          ? 0.35
-          : 0.5
-        : isDark
-          ? 0.22
-          : 0.4;
+  // Detailed mode: hex carries the color, neighbourhood fill hidden entirely
+  if (viewMode === "detailed") {
+    return {
+      id: "neighborhoods-fill",
+      type: "fill",
+      source: "neighborhoods",
+      layout: { visibility: "none" },
+      paint: { "fill-color": VIRIDIS_COLOR_EXPR, "fill-opacity": 0 },
+    };
+  }
+  // Summary mode: traditional choropleth for board presentations
+  const opacity = buildingGlow ? (isDark ? 0.35 : 0.5) : isDark ? 0.55 : 0.65;
   return {
     id: "neighborhoods-fill",
     type: "fill",
@@ -369,7 +371,30 @@ export default function MapInner({
             beforeId="neighborhoods-fill"
             paint={{
               "fill-color": VIRIDIS_COLOR_EXPR,
-              "fill-opacity": 0.75,
+              "fill-opacity": isDark ? 0.18 : 0.38,
+            }}
+          />
+          {/* Hex glow border — soft halo per cell, dark mode only */}
+          {isDark && (
+            <Layer
+              id="hex-glow"
+              type="line"
+              paint={{
+                "line-color": VIRIDIS_COLOR_EXPR,
+                "line-width": 3.5,
+                "line-opacity": 0.12,
+                "line-blur": 2,
+              }}
+            />
+          )}
+          {/* Hex core border — subtle honeycomb grid */}
+          <Layer
+            id="hex-border"
+            type="line"
+            paint={{
+              "line-color": VIRIDIS_COLOR_EXPR,
+              "line-width": 0.5,
+              "line-opacity": isDark ? 0.4 : 0.3,
             }}
           />
         </Source>

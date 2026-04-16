@@ -53,6 +53,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
   const [failedResolutions, setFailedResolutions] = useState<Set<number>>(
     new Set(),
   );
+  const [h3Failed, setH3Failed] = useState(false);
 
   // Stable refs — not re-initialised on render
   const hexCacheRef = useRef<
@@ -89,8 +90,14 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
 
       // Lazy-load h3-js on first use; cache the module ref
       if (!h3Ref.current) {
-        const mod = await import("h3-js");
-        h3Ref.current = mod as unknown as H3Module;
+        try {
+          const mod = await import("h3-js");
+          h3Ref.current = mod as unknown as H3Module;
+        } catch (h3Err) {
+          console.error("[hex] h3-js failed to load:", h3Err);
+          if (!cancelled) setH3Failed(true);
+          return;
+        }
       }
       if (cancelled) return;
       const h3 = h3Ref.current;
@@ -100,20 +107,31 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
       // cellToBoundary(id, true) returns [lng, lat][] — GeoJSON coordinate order.
       const fc: GeoJSON.FeatureCollection = {
         type: "FeatureCollection",
-        features: hexGridData.cells.map((cell) => ({
-          type: "Feature" as const,
-          geometry: {
-            type: "Polygon" as const,
-            coordinates: [h3.cellToBoundary(cell.id, true)],
-          },
-          properties: {
-            id: cell.id,
-            pct_at_defaults:
-              cell.pct_within[hexGridData.defaults.frequency_idx][
-                hexGridData.defaults.walking_idx
-              ],
-          },
-        })),
+        features: hexGridData.cells.map((cell) => {
+          const ring = h3.cellToBoundary(cell.id, true);
+          // Defensive: ensure GeoJSON polygon ring is closed (RFC 7946)
+          if (
+            ring.length > 0 &&
+            (ring[0][0] !== ring[ring.length - 1][0] ||
+              ring[0][1] !== ring[ring.length - 1][1])
+          ) {
+            ring.push(ring[0]);
+          }
+          return {
+            type: "Feature" as const,
+            geometry: {
+              type: "Polygon" as const,
+              coordinates: [ring],
+            },
+            properties: {
+              id: cell.id,
+              pct_at_defaults:
+                cell.pct_within[hexGridData.defaults.frequency_idx][
+                  hexGridData.defaults.walking_idx
+                ],
+            },
+          };
+        }),
       };
 
       hexCacheRef.current.set(res, { fc, data: hexGridData });
@@ -123,6 +141,9 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
       if (!cancelled) {
         console.error(`[hex] Failed to load r${res}:`, err);
         setFailedResolutions((prev) => new Set([...prev, res]));
+        // Clear stale hex data so UI doesn't show wrong resolution
+        setHexBaseFC(null);
+        setHexData(null);
       }
     } finally {
       if (!cancelled) setHexLoading(false);
@@ -134,6 +155,9 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
       setViewMode(mode);
       if (mode === "detailed") {
         void loadHexResolution(hexRes);
+      } else {
+        // Cancel any in-flight hex load when switching back to summary
+        cancelRef.current?.();
       }
     },
     [hexRes, loadHexResolution],
@@ -184,6 +208,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
         onHexResChange={handleHexResChange}
         hexLoading={hexLoading}
         failedResolutions={failedResolutions}
+        h3Failed={h3Failed}
       />
       <DevOverlay flags={devFlags} onChange={setDevFlags} />
     </div>

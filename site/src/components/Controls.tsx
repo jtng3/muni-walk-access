@@ -20,13 +20,11 @@ function formatMiles(minutes: number): string {
 
 // Cell counts per resolution from pipeline output (addresses only)
 const HEX_RES_CELLS: Record<number, number> = {
-  4: 1,
-  5: 3,
-  6: 8,
   7: 29,
   8: 161,
   9: 896,
   10: 5245,
+  11: 28_709,
 };
 
 interface ControlsProps {
@@ -48,6 +46,7 @@ interface ControlsProps {
   onHexResChange: (res: number) => void;
   hexLoading: boolean;
   failedResolutions: Set<number>;
+  h3Failed: boolean;
 }
 
 export default function Controls({
@@ -69,6 +68,7 @@ export default function Controls({
   onHexResChange,
   hexLoading,
   failedResolutions,
+  h3Failed,
 }: ControlsProps) {
   const [open, setOpen] = useState(true);
   const formattedPct = Math.round(pct * 100);
@@ -142,7 +142,7 @@ export default function Controls({
       {/* Summary / Detailed toggle */}
       <div className="space-y-2">
         <p className="text-xs font-medium text-muted-foreground">View</p>
-        <div className="flex gap-2">
+        <div className="flex gap-2" role="group" aria-label="View mode">
           <Button
             variant={viewMode === "summary" ? "default" : "outline"}
             size="sm"
@@ -164,8 +164,15 @@ export default function Controls({
         </div>
       </div>
 
-      {/* Resolution picker — only in Detailed mode */}
-      {viewMode === "detailed" && (
+      {/* Global h3 failure — disables all hex features */}
+      {h3Failed && viewMode === "detailed" && (
+        <p className="text-[10px] text-destructive/80">
+          Hex visualization unavailable (h3-js failed to load)
+        </p>
+      )}
+
+      {/* Resolution picker — only in Detailed mode when h3 is working */}
+      {viewMode === "detailed" && !h3Failed && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-foreground">
@@ -183,7 +190,12 @@ export default function Controls({
           </div>
           {hexRes === 10 && (
             <p className="text-[10px] text-muted-foreground/70">
-              Large download (5 MB)
+              Large download (~5 MB)
+            </p>
+          )}
+          {hexRes === 11 && (
+            <p className="text-[10px] text-muted-foreground/70">
+              Very large download (~35 MB)
             </p>
           )}
           {failedResolutions.has(hexRes) && (
@@ -192,8 +204,8 @@ export default function Controls({
             </p>
           )}
           <Slider
-            min={4}
-            max={10}
+            min={7}
+            max={11}
             step={1}
             value={[hexRes]}
             onValueChange={(v) => {
@@ -207,13 +219,13 @@ export default function Controls({
           />
           {/* Resolution tick marks */}
           <div className="relative mt-1 h-4" aria-hidden="true">
-            {[4, 5, 6, 7, 8, 9, 10].map((res) => {
-              const idx = res - 4;
-              const pct = (idx / 6) * 100;
+            {[7, 8, 9, 10, 11].map((res) => {
+              const idx = res - 7;
+              const pct = (idx / 4) * 100;
               const align =
                 idx === 0
                   ? ""
-                  : idx === 6
+                  : idx === 4
                     ? "-translate-x-full"
                     : "-translate-x-1/2";
               const isFailed = failedResolutions.has(res);
