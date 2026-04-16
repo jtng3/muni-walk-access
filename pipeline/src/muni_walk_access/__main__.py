@@ -35,7 +35,11 @@ from muni_walk_access.ingest.datasf import (
 from muni_walk_access.ingest.gtfs import fetch_gtfs, fetch_gtfs_v2
 from muni_walk_access.network.build import build_network
 from muni_walk_access.route.nearest_stop import route_nearest_stops
-from muni_walk_access.stratify.grid import compute_grid, compute_hex_grids
+from muni_walk_access.stratify.grid import (
+    assign_hex_cells,
+    compute_grid,
+    compute_hex_grids,
+)
 from muni_walk_access.stratify.lens import (
     aggregate_to_lenses,
     compute_lens_flags,
@@ -330,11 +334,15 @@ def _run_pipeline(
             result, summary_df, config, time_window=default_window
         )
 
-        # Per-window grid + hex: loop once per time window
+        # Per-window grid + hex: loop once per time window (aggregate + headway)
         logger.info("Stage stratify_hex: starting (%d windows)", len(time_windows))
         t0 = time.perf_counter()
         all_hex_grids: dict[str, dict[int, list[HexCell]]] = {}
         per_window_grids: dict[str, tuple[list[NeighborhoodGrid], CityWide]] = {}
+        all_hex_grids_headway: dict[str, dict[int, list[HexCell]]] = {}
+        per_window_grids_headway: dict[
+            str, tuple[list[NeighborhoodGrid], CityWide]
+        ] = {}
         for tw in time_windows:
             if tw.key == default_window:
                 tw_stratified = stratified  # already computed above
@@ -343,15 +351,32 @@ def _run_pipeline(
                 tw_stratified = restratify_for_window(stratified, summary_df, tw.key)
                 tw_neighborhoods, tw_city_wide = compute_grid(tw_stratified, config)
                 per_window_grids[tw.key] = (tw_neighborhoods, tw_city_wide)
-            tw_hex = compute_hex_grids(tw_stratified, config)
+            # Pre-assign H3 cells once — reused by both aggregate and headway
+            tw_with_hex = assign_hex_cells(tw_stratified)
+            # Aggregate scoring (existing)
+            tw_hex = compute_hex_grids(tw_with_hex, config)
             all_hex_grids[tw.key] = tw_hex
+            # Headway scoring (single-route wait time)
+            if "best_route_headway_min" in tw_stratified.columns:
+                hw_neighborhoods, hw_city_wide = compute_grid(
+                    tw_stratified, config, metric="headway"
+                )
+                per_window_grids_headway[tw.key] = (hw_neighborhoods, hw_city_wide)
+                hw_hex = compute_hex_grids(tw_with_hex, config, metric="headway")
+                all_hex_grids_headway[tw.key] = hw_hex
             logger.info(
                 "  Hex grids [%s]: %s",
                 tw.key,
                 {r: len(cells) for r, cells in tw_hex.items()},
             )
         t_hex = time.perf_counter() - t0
-        logger.info("Stage stratify_hex: %.1fs (%d windows)", t_hex, len(time_windows))
+        has_headway = bool(all_hex_grids_headway)
+        logger.info(
+            "Stage stratify_hex: %.1fs (%d windows × %s)",
+            t_hex,
+            len(time_windows),
+            "aggregate+headway" if has_headway else "aggregate",
+        )
     else:
         # --- Legacy single-window path ---
         stratified, _flags, neighborhoods, city_wide, t_lens, t_grid = _run_stratify(
@@ -375,7 +400,7 @@ def _run_pipeline(
     # For v2, emit per-window hex files; for legacy, emit without time_window
     hex_grids_for_emit: dict[int, list[HexCell]] = {}
     if use_v2:
-        # Write per-window hex + grid JSON files
+        # Write per-window hex + grid JSON files (aggregate)
         for tw_key, tw_hex in all_hex_grids.items():
             if tw_hex:
                 write_grid_hex_json(
@@ -384,6 +409,27 @@ def _run_pipeline(
         for tw_key, (tw_nbhds, tw_cw) in per_window_grids.items():
             write_grid_json(
                 tw_nbhds, tw_cw, config, run_id, output_dir, time_window=tw_key
+            )
+        # Write per-window hex + grid JSON files (headway)
+        for tw_key, tw_hex in all_hex_grids_headway.items():
+            if tw_hex:
+                write_grid_hex_json(
+                    tw_hex,
+                    config,
+                    run_id,
+                    output_dir,
+                    time_window=tw_key,
+                    route_mode="headway",
+                )
+        for tw_key, (tw_nbhds, tw_cw) in per_window_grids_headway.items():
+            write_grid_json(
+                tw_nbhds,
+                tw_cw,
+                config,
+                run_id,
+                output_dir,
+                time_window=tw_key,
+                route_mode="headway",
             )
     else:
         hex_grids_for_emit = all_hex_grids.get("_legacy", {})

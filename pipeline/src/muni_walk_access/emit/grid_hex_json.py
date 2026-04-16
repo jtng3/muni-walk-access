@@ -33,8 +33,9 @@ def write_grid_hex_json(
     run_id: str,
     output_dir: Path,
     time_window: str | None = None,
+    route_mode: str | None = None,
 ) -> list[Path]:
-    """Write one grid_hex_r{res}[_{time_window}].json per resolution.
+    """Write one grid_hex_r{res}[_{time_window}][_{route_mode}].json per resolution.
 
     Args:
         hex_grids: Mapping of H3 resolution → cell list (from compute_hex_grids).
@@ -43,6 +44,8 @@ def write_grid_hex_json(
         output_dir: Repository root (files land in site/src/data/).
         time_window: If set, included in schema and filename
             (e.g. ``grid_hex_r9_am_peak.json``).
+        route_mode: If set, appended to filename and included in schema
+            (e.g. ``grid_hex_r9_am_peak_headway.json``).
 
     Returns:
         List of paths to the written files.
@@ -69,6 +72,8 @@ def write_grid_hex_json(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = f"_{time_window}" if time_window else ""
+    if route_mode:
+        suffix = f"{suffix}_{route_mode}"
 
     written: list[Path] = []
     for res in sorted(hex_grids.keys()):
@@ -97,6 +102,7 @@ def write_grid_hex_json(
             run_id=run_id,
             config_snapshot_url="./config_snapshot.json",
             time_window=time_window,
+            route_mode=route_mode,
             axes=axes,
             defaults=defaults,
             cells=sorted(cells, key=lambda c: c.id),

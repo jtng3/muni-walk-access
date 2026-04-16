@@ -222,12 +222,13 @@ def aggregate_to_lenses(
     if "time_window" in stops_df.columns and time_window is not None:
         # v2 path: filter to requested window, rename for downstream compat
         window_stops = stops_df.filter(pl.col("time_window") == time_window)
-        stops_pd = window_stops.select(
-            [
-                "stop_id",
-                pl.col("total_trips_per_hour").alias("trips_per_hour_peak"),
-            ]
-        ).to_pandas()
+        select_cols = [
+            "stop_id",
+            pl.col("total_trips_per_hour").alias("trips_per_hour_peak"),
+        ]
+        if "best_route_headway_min" in stops_df.columns:
+            select_cols.append("best_route_headway_min")
+        stops_pd = window_stops.select(select_cols).to_pandas()
     else:
         # v1 legacy path
         stops_pd = stops_df.select(["stop_id", "trips_per_hour_peak"]).to_pandas()
@@ -250,6 +251,7 @@ def aggregate_to_lenses(
         "ej_community",
         "equity_strategy",
         "trips_per_hour_peak",
+        "best_route_headway_min",
     ]
     keep = [c for c in orig_cols + new_cols if c in result_pd.columns]
     return pl.from_pandas(result_pd[keep])
@@ -270,22 +272,31 @@ def restratify_for_window(
     spatial join pipeline.
     """
     window_stops = summary_df.filter(pl.col("time_window") == time_window)
-    freq_lookup = window_stops.select(
-        [
-            "stop_id",
-            pl.col("total_trips_per_hour").alias("_new_tph"),
-        ]
-    )
+    select_cols = [
+        "stop_id",
+        pl.col("total_trips_per_hour").alias("_new_tph"),
+    ]
+    has_headway = "best_route_headway_min" in summary_df.columns
+    if has_headway:
+        select_cols.append(pl.col("best_route_headway_min").alias("_new_headway"))
+    freq_lookup = window_stops.select(select_cols)
+
+    drop_cols = ["trips_per_hour_peak"]
+    rename_map: dict[str, str] = {"_new_tph": "trips_per_hour_peak"}
+    if has_headway:
+        if "best_route_headway_min" in stratified.columns:
+            drop_cols.append("best_route_headway_min")
+        rename_map["_new_headway"] = "best_route_headway_min"
 
     result = (
-        stratified.drop("trips_per_hour_peak")
+        stratified.drop(drop_cols)
         .join(
             freq_lookup,
             left_on="nearest_stop_id",
             right_on="stop_id",
             how="left",
         )
-        .rename({"_new_tph": "trips_per_hour_peak"})
+        .rename(rename_map)
     )
 
     return result

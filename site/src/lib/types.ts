@@ -117,3 +117,5 @@ export const TIME_WINDOWS = [
 ] as const;
 
 export type TimeWindowKey = (typeof TIME_WINDOWS)[number]["key"];
+
+export type RouteMode = "aggregate" | "headway";

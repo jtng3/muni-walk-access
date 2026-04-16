@@ -1,11 +1,13 @@
 import { RotateCcw } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
+import type { RouteMode } from "@/lib/types";
 
 interface FrequencySliderProps {
   axes: readonly number[];
   value: number;
   defaultValue: number;
   onChange: (idx: number) => void;
+  routeMode?: RouteMode;
 }
 
 export default function FrequencySlider({
@@ -13,14 +15,18 @@ export default function FrequencySlider({
   value,
   defaultValue,
   onChange,
+  routeMode = "aggregate",
 }: FrequencySliderProps) {
   const changed = value !== defaultValue;
+  const minutes = axes[value];
+  const label =
+    routeMode === "headway"
+      ? `Frequent = wait ≤ ${minutes} min for your route`
+      : `Frequent = every ${minutes} min or better`;
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between min-h-[1.5rem]">
-        <label className="text-sm font-medium text-foreground">
-          Frequent = every {axes[value]} min or better
-        </label>
+        <label className="text-sm font-medium text-foreground">{label}</label>
         <button
           onClick={() => onChange(defaultValue)}
           className={`ml-2 shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground transition-all ${
@@ -40,7 +46,11 @@ export default function FrequencySlider({
         step={1}
         value={[value]}
         onValueChange={(v) => onChange(Array.isArray(v) ? v[0] : v)}
-        getAriaValueText={() => `every ${axes[value]} minutes or better`}
+        getAriaValueText={() =>
+          routeMode === "headway"
+            ? `wait at most ${axes[value]} minutes for your route`
+            : `every ${axes[value]} minutes or better`
+        }
       />
       <div className="relative mt-1 h-4" aria-hidden="true">
         {axes.map((v, i) => {

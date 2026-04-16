@@ -1,7 +1,12 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { useUrlState } from "@/lib/useUrlState";
 import { useTheme } from "@/lib/useTheme";
-import type { GridSchema, HexGridSchema, TimeWindowKey } from "@/lib/types";
+import type {
+  GridSchema,
+  HexGridSchema,
+  TimeWindowKey,
+  RouteMode,
+} from "@/lib/types";
 import Controls from "./Controls";
 import MapView from "./MapView";
 import DevOverlay, { DEFAULT_DEV_FLAGS } from "./DevOverlay";
@@ -45,37 +50,47 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
   const [hexRes, setHexRes] = useState(8);
   const [showLabels, setShowLabels] = useState(true);
   const [timeWindow, setTimeWindow] = useState<TimeWindowKey>("am_peak");
+  const [routeMode, setRouteMode] = useState<RouteMode>("aggregate");
 
   // Per-window grid data (neighborhoods + city_wide pct_within)
   const [windowGrid, setWindowGrid] = useState<GridSchema | null>(null);
+  const [headwayUnavailable, setHeadwayUnavailable] = useState(false);
   const gridCacheRef = useRef<Map<string, GridSchema>>(new Map());
 
   useEffect(() => {
-    const cached = gridCacheRef.current.get(timeWindow);
+    const suffix =
+      routeMode === "headway" ? `${timeWindow}_headway` : timeWindow;
+    const cacheKey = suffix;
+    const cached = gridCacheRef.current.get(cacheKey);
     if (cached) {
       setWindowGrid(cached);
+      if (routeMode === "headway") setHeadwayUnavailable(false);
       return;
     }
     let cancelled = false;
-    fetch(`/data/grid_${timeWindow}.json`)
+    fetch(`/data/grid_${suffix}.json`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
       .then((d: GridSchema) => {
         if (!cancelled) {
-          gridCacheRef.current.set(timeWindow, d);
+          gridCacheRef.current.set(cacheKey, d);
           setWindowGrid(d);
+          if (routeMode === "headway") setHeadwayUnavailable(false);
         }
       })
       .catch((err) => {
-        console.error(`[grid] Failed to load grid_${timeWindow}.json:`, err);
-        if (!cancelled) setWindowGrid(null);
+        console.error(`[grid] Failed to load grid_${suffix}.json:`, err);
+        if (!cancelled) {
+          setWindowGrid(null);
+          if (routeMode === "headway") setHeadwayUnavailable(true);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [timeWindow]);
+  }, [timeWindow, routeMode]);
 
   // Use per-window grid data when available, fall back to static build-time data
   const activeGrid = windowGrid ?? data;
@@ -100,7 +115,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
   const cancelRef = useRef<(() => void) | null>(null);
 
   const loadHexResolution = useCallback(
-    async (res: number, tw: TimeWindowKey) => {
+    async (res: number, tw: TimeWindowKey, rm: RouteMode = "aggregate") => {
       // Cancel any previous in-flight load
       cancelRef.current?.();
       let cancelled = false;
@@ -108,7 +123,8 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
         cancelled = true;
       };
 
-      const cacheKey = `${res}_${tw}`;
+      const twSuffix = rm === "headway" ? `${tw}_headway` : tw;
+      const cacheKey = `${res}_${twSuffix}`;
 
       // Fast path: cache hit (clear loading state in case a cancelled load left it true)
       const cached = hexCacheRef.current.get(cacheKey);
@@ -121,7 +137,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
 
       setHexLoading(true);
       try {
-        const resp = await fetch(`/data/grid_hex_r${res}_${tw}.json`);
+        const resp = await fetch(`/data/grid_hex_r${res}_${twSuffix}.json`);
         if (cancelled) return;
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const hexGridData: HexGridSchema = await resp.json();
@@ -178,7 +194,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
         setHexData(hexGridData);
       } catch (err) {
         if (!cancelled) {
-          console.error(`[hex] Failed to load r${res}_${tw}:`, err);
+          console.error(`[hex] Failed to load r${res}_${twSuffix}:`, err);
           setFailedResolutions((prev) => new Set([...prev, res]));
           // Clear stale hex data so UI doesn't show wrong resolution
           setHexBaseFC(null);
@@ -195,31 +211,43 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
     (mode: "summary" | "detailed") => {
       setViewMode(mode);
       if (mode === "detailed") {
-        void loadHexResolution(hexRes, timeWindow);
+        void loadHexResolution(hexRes, timeWindow, routeMode);
       } else {
         // Cancel any in-flight hex load when switching back to summary
         cancelRef.current?.();
       }
     },
-    [hexRes, timeWindow, loadHexResolution],
+    [hexRes, timeWindow, routeMode, loadHexResolution],
   );
 
   const handleHexResChange = useCallback(
     (res: number) => {
       setHexRes(res);
-      void loadHexResolution(res, timeWindow);
+      void loadHexResolution(res, timeWindow, routeMode);
     },
-    [timeWindow, loadHexResolution],
+    [timeWindow, routeMode, loadHexResolution],
   );
 
   const handleTimeWindowChange = useCallback(
     (tw: TimeWindowKey) => {
       setTimeWindow(tw);
       if (viewMode === "detailed") {
-        void loadHexResolution(hexRes, tw);
+        void loadHexResolution(hexRes, tw, routeMode);
       }
     },
-    [hexRes, viewMode, loadHexResolution],
+    [hexRes, viewMode, routeMode, loadHexResolution],
+  );
+
+  const handleRouteModeChange = useCallback(
+    (rm: RouteMode) => {
+      setRouteMode(rm);
+      // Clear failed resolutions — different mode has different files
+      setFailedResolutions(new Set());
+      if (viewMode === "detailed") {
+        void loadHexResolution(hexRes, timeWindow, rm);
+      }
+    },
+    [hexRes, timeWindow, viewMode, loadHexResolution],
   );
 
   const pct = activeGrid.city_wide.pct_within[freqIdx][walkIdx];
@@ -265,6 +293,9 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
         onShowLabelsChange={setShowLabels}
         timeWindow={timeWindow}
         onTimeWindowChange={handleTimeWindowChange}
+        routeMode={routeMode}
+        onRouteModeChange={handleRouteModeChange}
+        headwayUnavailable={headwayUnavailable}
       />
       <DevOverlay flags={devFlags} onChange={setDevFlags} />
     </div>

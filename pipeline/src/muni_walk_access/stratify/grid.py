@@ -8,12 +8,17 @@ whose nearest stop meets both a frequency and walking-time threshold.
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 import h3
 import polars as pl
 
 from muni_walk_access.config import Config
 from muni_walk_access.emit.schemas import CityWide, HexCell, LensFlags, NeighborhoodGrid
+
+# Scoring metric: "aggregate" = total trips/hr (higher is better),
+# "headway" = best single-route headway (lower is better).
+Metric = Literal["aggregate", "headway"]
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +27,7 @@ def _compute_neighbourhood_grid(
     nbhd_df: pl.DataFrame,
     freq_thresholds: list[int],
     walk_thresholds: list[int],
+    metric: Metric = "aggregate",
 ) -> list[list[float]]:
     """Compute the pct_within matrix for one neighbourhood."""
     population = len(nbhd_df)
@@ -30,12 +36,18 @@ def _compute_neighbourhood_grid(
 
     grid: list[list[float]] = []
     for f_thresh in freq_thresholds:
-        trips_needed = 60.0 / f_thresh
         row: list[float] = []
         for w_thresh in walk_thresholds:
+            if metric == "headway":
+                # Lower headway = better; null headway → does not meet threshold
+                freq_expr = pl.col("best_route_headway_min").is_not_null() & (
+                    pl.col("best_route_headway_min") <= f_thresh
+                )
+            else:
+                trips_needed = 60.0 / f_thresh
+                freq_expr = pl.col("trips_per_hour_peak") >= trips_needed
             count = nbhd_df.filter(
-                (pl.col("trips_per_hour_peak") >= trips_needed)
-                & (pl.col("walk_minutes") <= w_thresh)
+                freq_expr & (pl.col("walk_minutes") <= w_thresh)
             ).height
             row.append(round(count / population, 4))
         grid.append(row)
@@ -45,6 +57,7 @@ def _compute_neighbourhood_grid(
 def compute_grid(
     stratified: pl.DataFrame,
     config: Config,
+    metric: Metric = "aggregate",
 ) -> tuple[list[NeighborhoodGrid], CityWide]:
     """Compute 2D accessibility grids per neighbourhood and city-wide.
 
@@ -53,6 +66,7 @@ def compute_grid(
             ``walk_minutes``, ``trips_per_hour_peak``,
             ``neighborhood_id``, ``neighborhood_name``, lens booleans.
         config: Pipeline configuration with grid axes.
+        metric: Scoring metric — ``"aggregate"`` or ``"headway"``.
 
     Returns:
         ``(neighborhoods, city_wide)`` — neighbourhoods sorted ascending
@@ -95,7 +109,7 @@ def compute_grid(
         )
 
         pct_within = _compute_neighbourhood_grid(
-            nbhd_df, freq_thresholds, walk_thresholds
+            nbhd_df, freq_thresholds, walk_thresholds, metric=metric
         )
 
         # Accumulate weighted sums for city-wide
@@ -136,23 +150,64 @@ def compute_grid(
     return neighborhoods, city_wide
 
 
+def assign_hex_cells(
+    stratified: pl.DataFrame,
+    resolutions: list[int] | None = None,
+) -> pl.DataFrame:
+    """Assign H3 cell IDs to each row for multiple resolutions.
+
+    This is the expensive step (Python loop over lat/lon). Call once per
+    window and reuse the result for both aggregate and headway scoring.
+
+    Args:
+        stratified: DataFrame with ``latitude``, ``longitude`` columns.
+        resolutions: H3 resolutions (default: 7-11 inclusive).
+
+    Returns:
+        DataFrame with ``h3_r{res}`` columns appended.
+
+    """
+    if resolutions is None:
+        resolutions = list(range(7, 12))
+
+    if len(stratified) == 0:
+        return stratified
+
+    lats = stratified["latitude"].to_list()
+    lons = stratified["longitude"].to_list()
+    return stratified.with_columns(
+        [
+            pl.Series(
+                f"h3_r{res}",
+                [h3.latlng_to_cell(lat, lon, res) for lat, lon in zip(lats, lons)],
+            )
+            for res in resolutions
+        ]
+    )
+
+
 def compute_hex_grids(
     stratified: pl.DataFrame,
     config: Config,
     resolutions: list[int] | None = None,
+    metric: Metric = "aggregate",
 ) -> dict[int, list[HexCell]]:
     """Compute 2D accessibility grids per H3 hex cell for multiple resolutions.
 
-    Vectorized implementation: assigns all resolution cell IDs in one pass,
-    pre-computes threshold boolean columns once, then uses ``group_by``+``agg``
-    per resolution — avoiding per-cell Python filter loops.
+    Vectorized implementation: pre-computes threshold boolean columns once,
+    then uses ``group_by``+``agg`` per resolution.
+
+    If the DataFrame already contains ``h3_r{res}`` columns (from
+    :func:`assign_hex_cells`), those are reused. Otherwise cell IDs are
+    assigned on the fly (backward-compatible).
 
     Args:
-        stratified: DataFrame from ``aggregate_to_lenses`` with
-            ``latitude``, ``longitude``, ``walk_minutes``,
-            ``trips_per_hour_peak`` columns.
+        stratified: DataFrame with ``walk_minutes``,
+            ``trips_per_hour_peak`` columns, and optionally pre-assigned
+            ``h3_r{res}`` columns.
         config: Pipeline configuration with grid axes.
         resolutions: H3 resolutions to compute (default: 7-11 inclusive).
+        metric: Scoring metric — ``"aggregate"`` or ``"headway"``.
 
     Returns:
         Mapping of resolution → sorted list of ``HexCell`` models.
@@ -169,27 +224,26 @@ def compute_hex_grids(
     if len(stratified) == 0:
         return {res: [] for res in resolutions}
 
-    # Assign all resolution cell ID columns in a single Python pass
-    lats = stratified["latitude"].to_list()
-    lons = stratified["longitude"].to_list()
-    df = stratified.with_columns(
-        [
-            pl.Series(
-                f"h3_r{res}",
-                [h3.latlng_to_cell(lat, lon, res) for lat, lon in zip(lats, lons)],
-            )
-            for res in resolutions
-        ]
-    )
+    # Assign H3 cells if not already present (backward compat)
+    if f"h3_r{resolutions[0]}" not in stratified.columns:
+        stratified = assign_hex_cells(stratified, resolutions)
+
+    df = stratified
 
     # Pre-compute the freq×walk boolean columns once (shared across all resolutions).
-    # Null trips_per_hour_peak → null AND anything → null → fill_null(False) = False,
+    # Null values → null AND anything → null → fill_null(False) = False,
     # consistent with the existing filter-based approach in _compute_neighbourhood_grid.
     meets_names: list[str] = []
     meets_exprs: list[pl.Expr] = []
     for fi, f_thresh in enumerate(freq_thresholds):
-        trips_needed = 60.0 / f_thresh
-        freq_expr = pl.col("trips_per_hour_peak") >= trips_needed
+        if metric == "headway":
+            # Lower headway = better; null → does not meet threshold
+            freq_expr = pl.col("best_route_headway_min").is_not_null() & (
+                pl.col("best_route_headway_min") <= f_thresh
+            )
+        else:
+            trips_needed = 60.0 / f_thresh
+            freq_expr = pl.col("trips_per_hour_peak") >= trips_needed
         for wi, w_thresh in enumerate(walk_thresholds):
             name = f"_m{fi}_{wi}"
             meets_names.append(name)

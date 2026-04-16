@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { ChevronDown, Settings2 } from "lucide-react";
-import type { GridAxes, GridDefaults, TimeWindowKey } from "@/lib/types";
+import type {
+  GridAxes,
+  GridDefaults,
+  TimeWindowKey,
+  RouteMode,
+} from "@/lib/types";
 import { TIME_WINDOWS } from "@/lib/types";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -53,6 +58,9 @@ interface ControlsProps {
   onShowLabelsChange: (show: boolean) => void;
   timeWindow: TimeWindowKey;
   onTimeWindowChange: (tw: TimeWindowKey) => void;
+  routeMode: RouteMode;
+  onRouteModeChange: (mode: RouteMode) => void;
+  headwayUnavailable: boolean;
 }
 
 export default function Controls({
@@ -79,6 +87,9 @@ export default function Controls({
   onShowLabelsChange,
   timeWindow,
   onTimeWindowChange,
+  routeMode,
+  onRouteModeChange,
+  headwayUnavailable,
 }: ControlsProps) {
   const [open, setOpen] = useState(true);
   const formattedPct = Math.round(pct * 100);
@@ -97,7 +108,8 @@ export default function Controls({
         <span className="text-xs text-muted-foreground">
           {TIME_WINDOWS.find((tw) => tw.key === timeWindow)?.label ??
             timeWindow}{" "}
-          &middot; {freqMin}min &middot; {walkMiles}mi
+          &middot; {routeMode === "headway" ? `≤${freqMin}` : freqMin}min
+          &middot; {walkMiles}mi
         </span>
         <Settings2 className="ml-1 h-3.5 w-3.5 text-muted-foreground" />
       </button>
@@ -115,7 +127,8 @@ export default function Controls({
             {formattedPct}%
           </span>
           <p className="text-xs text-muted-foreground mt-0.5">
-            every {freqMin} min &middot; {walkMiles} mi walk &middot;{" "}
+            {routeMode === "headway" ? "wait ≤" : "every"} {freqMin} min
+            &middot; {walkMiles} mi walk &middot;{" "}
             {TIME_WINDOWS.find((tw) => tw.key === timeWindow)?.long ??
               timeWindow}
           </p>
@@ -157,6 +170,54 @@ export default function Controls({
         </div>
       </div>
 
+      {/* Route scoring mode */}
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-muted-foreground">
+          Frequency metric
+        </p>
+        <div
+          className="flex gap-1"
+          role="group"
+          aria-label="Route scoring mode"
+        >
+          <Button
+            variant={routeMode === "aggregate" ? "default" : "outline"}
+            size="sm"
+            className="flex-1 px-0 h-auto py-1.5 flex-col gap-0"
+            onClick={() => onRouteModeChange("aggregate")}
+            aria-pressed={routeMode === "aggregate"}
+            title="How often any bus arrives — all routes at a stop combined. A stop with 4 routes × 3 trips/hr each shows 12 trips/hr total."
+          >
+            <span className="text-[11px] leading-tight font-medium">
+              All buses
+            </span>
+            <span className="text-[9px] leading-tight opacity-70 font-normal">
+              combined freq
+            </span>
+          </Button>
+          <Button
+            variant={routeMode === "headway" ? "default" : "outline"}
+            size="sm"
+            className="flex-1 px-0 h-auto py-1.5 flex-col gap-0"
+            onClick={() => onRouteModeChange("headway")}
+            aria-pressed={routeMode === "headway"}
+            title="Longest wait for your specific route — how long until the single best route at a stop arrives. Reveals stops where many infrequent routes mask long waits."
+          >
+            <span className="text-[11px] leading-tight font-medium">
+              Your route
+            </span>
+            <span className="text-[9px] leading-tight opacity-70 font-normal">
+              longest wait
+            </span>
+          </Button>
+        </div>
+        {headwayUnavailable && routeMode === "headway" && (
+          <p className="text-[10px] text-destructive/80 mt-1">
+            Route-level data unavailable — re-run pipeline to generate
+          </p>
+        )}
+      </div>
+
       <Separator />
 
       <FrequencySlider
@@ -164,6 +225,7 @@ export default function Controls({
         value={freqIdx}
         defaultValue={defaults.frequency_idx}
         onChange={onFreqChange}
+        routeMode={routeMode}
       />
       <WalkingTimeSlider
         axes={axes.walking_minutes}

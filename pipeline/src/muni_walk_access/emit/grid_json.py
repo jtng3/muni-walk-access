@@ -24,11 +24,13 @@ def write_grid_json(
     run_id: str,
     output_dir: Path,
     time_window: str | None = None,
+    route_mode: str | None = None,
 ) -> Path:
     """Write grid JSON to {output_dir}/site/src/data/.
 
     When *time_window* is set the file is named ``grid_{time_window}.json``
-    (e.g. ``grid_am_peak.json``); otherwise plain ``grid.json``.
+    (e.g. ``grid_am_peak.json``). When *route_mode* is also set, it is
+    appended: ``grid_am_peak_headway.json``.
 
     Returns the path to the written file.
     """
@@ -44,6 +46,7 @@ def write_grid_json(
         version="2.0.0" if time_window else "1.0.0",
         run_id=run_id,
         config_snapshot_url="./config_snapshot.json",
+        route_mode=route_mode,
         axes=GridAxes(
             frequency_minutes=config.grid.frequency_threshold_min,
             walking_minutes=config.grid.walking_minutes,
@@ -55,7 +58,10 @@ def write_grid_json(
 
     out_dir = output_dir / "site" / "src" / "data"
     out_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"grid_{time_window}.json" if time_window else "grid.json"
+    suffix = time_window or ""
+    if route_mode:
+        suffix = f"{suffix}_{route_mode}" if suffix else route_mode
+    filename = f"grid_{suffix}.json" if suffix else "grid.json"
     out_path = out_dir / filename
     out_path.write_text(schema.model_dump_json(indent=2))
     logger.info("Grid JSON written: %s", out_path)

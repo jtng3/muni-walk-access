@@ -78,6 +78,7 @@ class GridSchema(BaseModel):
     version: str
     run_id: str
     config_snapshot_url: str
+    route_mode: str | None = None
     axes: GridAxes
     defaults: GridDefaults
     city_wide: CityWide
@@ -231,6 +232,7 @@ class HexGridSchema(BaseModel):
     run_id: str
     config_snapshot_url: str
     time_window: str | None = None
+    route_mode: str | None = None
     axes: GridAxes
     defaults: GridDefaults
     cells: list[HexCell]
