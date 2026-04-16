@@ -10,6 +10,12 @@ import { TIME_WINDOWS } from "@/lib/types";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import FrequencySlider from "./FrequencySlider";
 import WalkingTimeSlider from "./WalkingTimeSlider";
 import { Switch } from "@/components/ui/switch";
@@ -180,36 +186,57 @@ export default function Controls({
           role="group"
           aria-label="Route scoring mode"
         >
-          <Button
-            variant={routeMode === "aggregate" ? "default" : "outline"}
-            size="sm"
-            className="flex-1 px-0 h-auto py-1.5 flex-col gap-0"
-            onClick={() => onRouteModeChange("aggregate")}
-            aria-pressed={routeMode === "aggregate"}
-            title="How often any bus arrives — all routes at a stop combined. A stop with 4 routes × 3 trips/hr each shows 12 trips/hr total."
-          >
-            <span className="text-[11px] leading-tight font-medium">
-              All buses
-            </span>
-            <span className="text-[9px] leading-tight opacity-70 font-normal">
-              combined freq
-            </span>
-          </Button>
-          <Button
-            variant={routeMode === "headway" ? "default" : "outline"}
-            size="sm"
-            className="flex-1 px-0 h-auto py-1.5 flex-col gap-0"
-            onClick={() => onRouteModeChange("headway")}
-            aria-pressed={routeMode === "headway"}
-            title="Longest wait for your specific route — how long until the single best route at a stop arrives. Reveals stops where many infrequent routes mask long waits."
-          >
-            <span className="text-[11px] leading-tight font-medium">
-              Your route
-            </span>
-            <span className="text-[9px] leading-tight opacity-70 font-normal">
-              longest wait
-            </span>
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={routeMode === "aggregate" ? "default" : "outline"}
+                    size="sm"
+                    className="flex-1 px-0 h-auto py-1.5 flex-col gap-0"
+                    onClick={() => onRouteModeChange("aggregate")}
+                    aria-pressed={routeMode === "aggregate"}
+                  />
+                }
+              >
+                <span className="text-[11px] leading-tight font-medium">
+                  All buses
+                </span>
+                <span className="text-[9px] leading-tight opacity-70 font-normal">
+                  combined freq
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                How often any bus arrives — all routes at a stop combined. A
+                stop with 4 routes × 3 trips/hr each shows 12 trips/hr total.
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={routeMode === "headway" ? "default" : "outline"}
+                    size="sm"
+                    className="flex-1 px-0 h-auto py-1.5 flex-col gap-0"
+                    onClick={() => onRouteModeChange("headway")}
+                    aria-pressed={routeMode === "headway"}
+                  />
+                }
+              >
+                <span className="text-[11px] leading-tight font-medium">
+                  Your route
+                </span>
+                <span className="text-[9px] leading-tight opacity-70 font-normal">
+                  longest wait
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Longest wait for your specific route — how long until the single
+                best route at a stop arrives. Reveals stops where many
+                infrequent routes mask long waits.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         {headwayUnavailable && routeMode === "headway" && (
           <p className="text-[10px] text-destructive/80 mt-1">

@@ -35,7 +35,7 @@ export default function WalkingTimeSlider({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between min-h-[1.5rem]">
-        <label className="text-sm font-medium text-foreground">
+        <label className="text-xs font-medium text-foreground">
           {minutes} min walk &middot; {formatMiles(minutes)} mi
         </label>
         <button

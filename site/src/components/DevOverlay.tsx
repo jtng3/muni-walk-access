@@ -18,7 +18,7 @@ export const DEFAULT_DEV_FLAGS: DevFlags = {
   buildings3d: false,
   glowBorders: false,
   buildingGlow: false,
-  fillOpacity: 0.75,
+  fillOpacity: 0.65,
 };
 
 interface DevOverlayProps {
@@ -45,7 +45,7 @@ export default function DevOverlay({ flags, onChange }: DevOverlayProps) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="absolute bottom-4 right-4 z-10 rounded-lg bg-card/60 backdrop-blur-md border border-border p-2 shadow-lg hover:bg-card/70 transition-colors cursor-pointer"
+        className="absolute top-4 right-4 z-10 rounded-lg bg-card/60 backdrop-blur-md border border-border p-2 shadow-lg hover:bg-card/70 transition-colors cursor-pointer"
         aria-label="Open dev tools"
       >
         <Wrench className="h-4 w-4 text-muted-foreground" />
@@ -54,7 +54,7 @@ export default function DevOverlay({ flags, onChange }: DevOverlayProps) {
   }
 
   return (
-    <div className="absolute bottom-4 right-4 z-10 w-52 rounded-lg bg-card/60 backdrop-blur-md border border-border p-3 shadow-lg space-y-2">
+    <div className="absolute top-4 right-4 z-10 w-52 rounded-lg bg-card/60 backdrop-blur-md border border-border p-3 shadow-lg space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Dev Tools

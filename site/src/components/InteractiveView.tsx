@@ -47,7 +47,7 @@ export default function InteractiveView({ data }: InteractiveViewProps) {
 
   // View mode and resolution — local state (not URL-shared; display preferences only)
   const [viewMode, setViewMode] = useState<"summary" | "detailed">("summary");
-  const [hexRes, setHexRes] = useState(8);
+  const [hexRes, setHexRes] = useState(10);
   const [showLabels, setShowLabels] = useState(true);
   const [timeWindow, setTimeWindow] = useState<TimeWindowKey>("am_peak");
   const [routeMode, setRouteMode] = useState<RouteMode>("aggregate");

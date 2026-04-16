@@ -21,12 +21,12 @@ export default function FrequencySlider({
   const minutes = axes[value];
   const label =
     routeMode === "headway"
-      ? `Frequent = wait ≤ ${minutes} min for your route`
-      : `Frequent = every ${minutes} min or better`;
+      ? `Frequent: wait ≤ ${minutes} min for your route`
+      : `Frequent: every ${minutes} min or better`;
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between min-h-[1.5rem]">
-        <label className="text-sm font-medium text-foreground">{label}</label>
+        <label className="text-xs font-medium text-foreground">{label}</label>
         <button
           onClick={() => onChange(defaultValue)}
           className={`ml-2 shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground transition-all ${
