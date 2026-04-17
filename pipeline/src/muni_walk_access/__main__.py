@@ -32,7 +32,11 @@ from muni_walk_access.ingest.datasf import (
     get_datasf_timestamps,
     was_fallback_used,
 )
-from muni_walk_access.ingest.gtfs import fetch_gtfs, fetch_gtfs_v2
+from muni_walk_access.ingest.gtfs import (
+    compute_frequencies,
+    fetch_gtfs,
+    fetch_gtfs_feed,
+)
 from muni_walk_access.ingest.sources import get_address_source
 from muni_walk_access.network.build import build_network
 from muni_walk_access.route.nearest_stop import route_nearest_stops
@@ -321,9 +325,10 @@ def _run_pipeline(
     t0 = time.perf_counter()
     gtfs_feed_date = ""
     if use_v2:
-        detail_df, summary_df, gtfs_sha256, gtfs_feed_date = fetch_gtfs_v2(
-            config, ctx=ctx
-        )
+        gtfs_feed = fetch_gtfs_feed(config, ctx=ctx)
+        detail_df, summary_df = compute_frequencies(gtfs_feed, config)
+        gtfs_sha256 = gtfs_feed.feed_sha256
+        gtfs_feed_date = gtfs_feed.feed_date
         # For routing, we need a single stops DataFrame with coordinates.
         # Use the summary filtered to am_peak (or first window) for routing —
         # routing only needs stop_id, stop_lat, stop_lon, trips_per_hour_peak.

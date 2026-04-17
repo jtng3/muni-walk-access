@@ -19,6 +19,7 @@ import polars as pl
 from muni_walk_access.config import Config, TimeWindow
 from muni_walk_access.exceptions import IngestError
 from muni_walk_access.ingest.cache import CacheManager
+from muni_walk_access.ingest.contracts import GTFSFeed
 from muni_walk_access.ingest.datasf import set_upstream_fallback
 
 if TYPE_CHECKING:
@@ -31,7 +32,10 @@ logger = logging.getLogger(__name__)
 GTFS_URL = "https://muni-gtfs.apps.sfmta.com/data/muni_gtfs-current.zip"
 GTFS_DATASET_ID = "muni-gtfs"
 CACHE_SUBDIR = "gtfs"
-_META_FILENAME = f"{GTFS_DATASET_ID}-http.json"
+
+
+def _meta_filename(dataset_id: str) -> str:
+    return f"{dataset_id}-http.json"
 
 
 def _parse_time_seconds(t: str) -> int | None:
@@ -149,8 +153,27 @@ def _pick_reference_date(cal_df: pl.DataFrame | None, service_days: str) -> date
 def _get_active_service_ids(zf: zipfile.ZipFile, service_days: str) -> set[str]:
     """Return service_ids active on a representative date for the requested day type.
 
-    Reads both ``calendar.txt`` and ``calendar_dates.txt`` (both optional per
-    GTFS spec). Correctness rules applied:
+    Thin wrapper that reads calendar tables from a GTFS zip and delegates to
+    :func:`_service_ids_from_calendars`. Kept for the v1 ``fetch_gtfs`` path
+    (which still operates on zip bytes) and for the existing tests that
+    fixture a zipfile directly.
+
+    """
+    cal_df = _read_optional_csv(zf, "calendar.txt")
+    cal_dates_df = _read_optional_csv(zf, "calendar_dates.txt")
+    return _service_ids_from_calendars(cal_df, cal_dates_df, service_days)
+
+
+def _service_ids_from_calendars(
+    cal_df: pl.DataFrame | None,
+    cal_dates_df: pl.DataFrame | None,
+    service_days: str,
+) -> set[str]:
+    """Return service_ids active on a representative date from calendar tables.
+
+    Same semantics as :func:`_get_active_service_ids` but operates on
+    pre-parsed :class:`polars.DataFrame` tables (as carried by a
+    :class:`GTFSFeed`). Correctness rules applied:
 
     - Filter ``calendar.txt`` rows by ``start_date ≤ ref_date ≤ end_date`` to
       exclude stale / not-yet-active service definitions (fixes the
@@ -159,21 +182,14 @@ def _get_active_service_ids(zf: zipfile.ZipFile, service_days: str) -> set[str]:
       ``exception_type=1`` on ref_date; remove service_ids with
       ``exception_type=2``.
 
-    If BOTH calendar files are absent, return empty set and let the caller
+    If BOTH calendar tables are missing, return empty set and let the caller
     skip filtering (preserves backward compatibility with minimal test
     fixtures that omit the calendar).
-
-    Args:
-        zf: Open GTFS zip file.
-        service_days: One of "weekday", "saturday", or "sunday".
 
     """
     if service_days not in _DAY_COLUMNS:
         raise ValueError(f"Invalid service_days: {service_days!r}")
     day_cols = _DAY_COLUMNS[service_days]
-
-    cal_df = _read_optional_csv(zf, "calendar.txt")
-    cal_dates_df = _read_optional_csv(zf, "calendar_dates.txt")
 
     if cal_df is None and cal_dates_df is None:
         # TODO(multi-city): raise IngestError here once the per-city GTFSSource
@@ -371,11 +387,11 @@ def _bin_departure(dep_sec: int, windows: list[tuple[str, int, int]]) -> str | N
 
 
 def _compute_stop_frequencies_v2(
-    zip_bytes: bytes,
+    feed: GTFSFeed,
     time_windows: list[TimeWindow],
     service_days: str = "weekday",
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Parse GTFS zip into per-route detail and per-stop summary DataFrames.
+    """Compute per-route detail + per-stop summary from a :class:`GTFSFeed`.
 
     Returns:
         detail: stop_id, route_id, route_short_name, time_window,
@@ -384,35 +400,14 @@ def _compute_stop_frequencies_v2(
                  total_trips_per_hour, route_count, stop_lat, stop_lon
 
     """
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
-    except zipfile.BadZipFile as exc:
-        raise IngestError(
-            GTFS_DATASET_ID,
-            f"Downloaded content is not a valid zip file: {exc}",
-        ) from exc
+    trips_df = feed.trips_df
+    stop_times_df = feed.stop_times_df
+    stops_df = feed.stops_df
+    routes_df = feed.routes_df
 
-    with zf:
-        try:
-            trips_df = pl.read_csv(
-                io.BytesIO(zf.read("trips.txt")), infer_schema_length=0
-            )
-            stop_times_df = pl.read_csv(
-                io.BytesIO(zf.read("stop_times.txt")), infer_schema_length=0
-            )
-            stops_df = pl.read_csv(
-                io.BytesIO(zf.read("stops.txt")), infer_schema_length=0
-            )
-            routes_df = pl.read_csv(
-                io.BytesIO(zf.read("routes.txt")), infer_schema_length=0
-            )
-        except KeyError as exc:
-            raise IngestError(
-                GTFS_DATASET_ID,
-                f"GTFS zip missing required file: {exc}",
-            ) from exc
-
-        service_ids = _get_service_ids(zf, service_days)
+    service_ids = _service_ids_from_calendars(
+        feed.calendar_df, feed.calendar_dates_df, service_days
+    )
 
     # Filter trips to matching service day type
     if service_ids:
@@ -598,7 +593,7 @@ def fetch_gtfs(
     sha256: str = ""
 
     # Load saved HTTP metadata for conditional requests
-    meta_path = cache._dir(CACHE_SUBDIR) / _META_FILENAME
+    meta_path = cache._dir(CACHE_SUBDIR) / _meta_filename(GTFS_DATASET_ID)
     http_meta: dict[str, str] = {}
     if meta_path.exists():
         try:
@@ -689,34 +684,30 @@ def fetch_gtfs(
             _client.close()
 
 
-def fetch_gtfs_v2(
+def fetch_gtfs_feed(
     config: Config,
-    client: httpx.Client | None = None,
     ctx: RunContext | None = None,
-) -> tuple[pl.DataFrame, pl.DataFrame, str, str]:
-    """Download GTFS zip, parse per-route multi-window frequencies.
+    client: httpx.Client | None = None,
+    *,
+    dataset_id: str = GTFS_DATASET_ID,
+    url: str = GTFS_URL,
+    cache_subdir: str = CACHE_SUBDIR,
+) -> GTFSFeed:
+    """Download and parse a GTFS zip into a :class:`GTFSFeed` contract.
 
-    Falls back to cache if all upstream URLs fail. Raises IngestError if
-    no upstream and no cache exist.
+    Performs conditional HTTP fetch (ETag / If-Modified-Since / 304) with
+    cache fallback, extracts raw GTFS tables, and returns a contract-shaped
+    feed. Aggregation (per-route frequencies) happens downstream in
+    :func:`compute_frequencies` which consumes this feed.
 
-    Returns:
-        detail: Per-route detail DataFrame
-        summary: Per-stop summary DataFrame (drives hex scoring)
-        sha256: hex digest of the raw zip bytes
-        feed_date: Last-Modified date from GTFS server, or empty string
+    ``dataset_id`` / ``url`` / ``cache_subdir`` are keyword-only so future
+    city adapters (Story 5-4 SEPTA) can override them while preserving SF
+    byte-identical behavior by default.
+
+    Raises:
+        IngestError: if upstream fails and no local cache exists.
 
     """
-    time_windows = config.frequency.time_windows
-    if not time_windows:
-        raise ValueError(
-            "fetch_gtfs_v2 requires config.frequency.time_windows to be set"
-        )
-
-    cache = CacheManager(
-        root=config.ingest.cache_dir,
-        ttl_days=config.ingest.cache_ttl_days,
-    )
-
     own_client = client is None
     _client: httpx.Client = (
         client
@@ -724,11 +715,103 @@ def fetch_gtfs_v2(
         else httpx.Client(timeout=120.0, follow_redirects=True)
     )
 
-    zip_bytes: bytes | None = None
-    sha256: str = ""
+    cache = CacheManager(
+        root=config.ingest.cache_dir,
+        ttl_days=config.ingest.cache_ttl_days,
+    )
 
-    # Load saved HTTP metadata for conditional requests
-    meta_path = cache._dir(CACHE_SUBDIR) / _META_FILENAME
+    try:
+        zip_bytes, feed_date = _fetch_zip_with_cache_fallback(
+            _client,
+            cache,
+            ctx,
+            url=url,
+            dataset_id=dataset_id,
+            cache_subdir=cache_subdir,
+        )
+    finally:
+        if own_client:
+            _client.close()
+
+    sha256 = hashlib.sha256(zip_bytes).hexdigest()
+    return _parse_zip_to_feed(
+        zip_bytes,
+        dataset_id=dataset_id,
+        feed_sha256=sha256,
+        feed_date=feed_date,
+    )
+
+
+def compute_frequencies(
+    feed: GTFSFeed,
+    config: Config,
+    *,
+    dataset_id: str = GTFS_DATASET_ID,
+    cache_subdir: str = CACHE_SUBDIR,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Compute per-route detail + per-stop summary frequency DataFrames.
+
+    Consumes a :class:`GTFSFeed` (already-parsed raw tables) and returns
+    ``(detail, summary)``. The parsed detail+summary parquets are cached
+    keyed on ``feed.feed_sha256`` + time-window set + service_days so
+    repeated runs against the same feed skip the aggregation cost.
+
+    """
+    time_windows = config.frequency.time_windows
+    if not time_windows:
+        raise ValueError(
+            "compute_frequencies requires config.frequency.time_windows to be set"
+        )
+    service_days = config.frequency.service_days
+
+    cache = CacheManager(
+        root=config.ingest.cache_dir,
+        ttl_days=config.ingest.cache_ttl_days,
+    )
+
+    tw_keys = "-".join(tw.key for tw in time_windows)
+    parsed_cache_id = (
+        f"{dataset_id}-v2-{service_days}-{tw_keys}-{feed.feed_sha256[:16]}"
+    )
+
+    detail_cached = cache.get(cache_subdir, f"{parsed_cache_id}-detail")
+    summary_cached = cache.get(cache_subdir, f"{parsed_cache_id}-summary")
+    if detail_cached is not None and summary_cached is not None:
+        detail = pl.read_parquet(detail_cached)
+        summary = pl.read_parquet(summary_cached)
+        return detail, summary
+
+    detail, summary = _compute_stop_frequencies_v2(
+        feed, time_windows, service_days=service_days
+    )
+
+    buf_d = io.BytesIO()
+    detail.write_parquet(buf_d)
+    cache.put(cache_subdir, f"{parsed_cache_id}-detail", buf_d.getvalue(), "parquet")
+
+    buf_s = io.BytesIO()
+    summary.write_parquet(buf_s)
+    cache.put(cache_subdir, f"{parsed_cache_id}-summary", buf_s.getvalue(), "parquet")
+
+    return detail, summary
+
+
+def _fetch_zip_with_cache_fallback(
+    client: httpx.Client,
+    cache: CacheManager,
+    ctx: RunContext | None,
+    *,
+    url: str,
+    dataset_id: str,
+    cache_subdir: str,
+) -> tuple[bytes, str]:
+    """HTTP GET with 304 + cache fallback. Returns (zip_bytes, feed_date).
+
+    ``feed_date`` is the ``last-modified`` header as saved at the time of
+    the most recent successful fetch (preserved across 304s and upstream
+    failures).
+    """
+    meta_path = cache._dir(cache_subdir) / _meta_filename(dataset_id)
     http_meta: dict[str, str] = {}
     if meta_path.exists():
         try:
@@ -736,95 +819,125 @@ def fetch_gtfs_v2(
         except (json.JSONDecodeError, OSError):
             pass
 
+    headers: dict[str, str] = {}
+    if http_meta.get("etag"):
+        headers["If-None-Match"] = http_meta["etag"]
+    if http_meta.get("last_modified"):
+        headers["If-Modified-Since"] = http_meta["last_modified"]
+
+    zip_bytes: bytes | None = None
+    upstream_unchanged = False
+    upstream_failed = False
     try:
-        headers: dict[str, str] = {}
-        if http_meta.get("etag"):
-            headers["If-None-Match"] = http_meta["etag"]
-        if http_meta.get("last_modified"):
-            headers["If-Modified-Since"] = http_meta["last_modified"]
+        resp = client.get(url, headers=headers)
+        if resp.status_code == 304:
+            logger.info("GTFS unchanged (304 Not Modified), using cache")
+            upstream_unchanged = True
+        else:
+            resp.raise_for_status()
+            zip_bytes = resp.content
+            new_meta: dict[str, str] = {}
+            if resp.headers.get("etag"):
+                new_meta["etag"] = resp.headers["etag"]
+            if resp.headers.get("last-modified"):
+                new_meta["last_modified"] = resp.headers["last-modified"]
+            if new_meta:
+                meta_path.write_text(json.dumps(new_meta))
+    except (httpx.HTTPError, httpx.TransportError) as exc:
+        logger.warning("GTFS fetch failed from %s: %s", url, exc)
+        upstream_failed = True
 
-        use_cache = False
-        try:
-            resp = _client.get(GTFS_URL, headers=headers)
-            if resp.status_code == 304:
-                logger.info("GTFS unchanged (304 Not Modified), using cache")
-                use_cache = True
-            else:
-                resp.raise_for_status()
-                zip_bytes = resp.content
-                new_meta: dict[str, str] = {}
-                if resp.headers.get("etag"):
-                    new_meta["etag"] = resp.headers["etag"]
-                if resp.headers.get("last-modified"):
-                    new_meta["last_modified"] = resp.headers["last-modified"]
-                if new_meta:
-                    meta_path.write_text(json.dumps(new_meta))
-        except (httpx.HTTPError, httpx.TransportError) as exc:
-            logger.warning("GTFS fetch failed from %s: %s", GTFS_URL, exc)
-            use_cache = True
-
-        if use_cache or zip_bytes is None:
-            cached_zip = cache.get_any(CACHE_SUBDIR, GTFS_DATASET_ID + "-zip")
-            if cached_zip is not None and cached_zip.suffix == ".zip":
-                if not use_cache:
-                    logger.warning("GTFS fetch failed; using cached zip %s", cached_zip)
-                    set_upstream_fallback(ctx)
-                zip_bytes = cached_zip.read_bytes()
-            else:
-                raise IngestError(
-                    GTFS_DATASET_ID,
-                    "GTFS fetch failed and no local cache. "
-                    "Warm the cache with network access first.",
-                )
-
-        sha256 = hashlib.sha256(zip_bytes).hexdigest()
-
-        # Read feed date from saved HTTP metadata
-        feed_date = ""
-        if meta_path.exists():
-            try:
-                _meta = json.loads(meta_path.read_text())
-                feed_date = _meta.get("last_modified", "")
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        # Cache key differentiates v2 from v1
-        service_days = config.frequency.service_days
-        tw_keys = "-".join(tw.key for tw in time_windows)
-        parsed_cache_id = f"{GTFS_DATASET_ID}-v2-{service_days}-{tw_keys}-{sha256[:16]}"
-
-        # Check for cached detail+summary parquets
-        detail_cached = cache.get(CACHE_SUBDIR, f"{parsed_cache_id}-detail")
-        summary_cached = cache.get(CACHE_SUBDIR, f"{parsed_cache_id}-summary")
-        if detail_cached is not None and summary_cached is not None:
-            detail = pl.read_parquet(detail_cached)
-            summary = pl.read_parquet(summary_cached)
-            return detail, summary, sha256, feed_date
-
+    if upstream_unchanged or upstream_failed or zip_bytes is None:
+        cached_zip = cache.get_any(cache_subdir, dataset_id + "-zip")
+        if cached_zip is not None and cached_zip.suffix == ".zip":
+            if upstream_failed:
+                logger.warning("GTFS fetch failed; using cached zip %s", cached_zip)
+                set_upstream_fallback(ctx)
+            zip_bytes = cached_zip.read_bytes()
+        elif upstream_unchanged:
+            # Server said 304 (we had a cached meta), but the cached zip is
+            # gone — meta drifted from cache contents (e.g. partial deletion).
+            raise IngestError(
+                dataset_id,
+                "GTFS server returned 304 Not Modified but no cached zip is "
+                "present. Clear the cache meta file so the next run forces "
+                "a full download.",
+            )
+        else:
+            raise IngestError(
+                dataset_id,
+                "GTFS fetch failed and no local cache. "
+                "Warm the cache with network access first.",
+            )
+    else:
         # Cache the raw zip (only if we got new data from upstream)
-        if not use_cache:
-            cache.put(CACHE_SUBDIR, GTFS_DATASET_ID + "-zip", zip_bytes, "zip")
+        cache.put(cache_subdir, dataset_id + "-zip", zip_bytes, "zip")
 
-        # Parse
-        detail, summary = _compute_stop_frequencies_v2(
-            zip_bytes, time_windows, service_days=service_days
-        )
+    # Feed date comes from the last saved HTTP metadata (may predate this run).
+    feed_date = ""
+    if meta_path.exists():
+        try:
+            _meta = json.loads(meta_path.read_text())
+            feed_date = _meta.get("last_modified", "")
+        except (json.JSONDecodeError, OSError):
+            pass
 
-        # Cache both DataFrames
-        buf_d = io.BytesIO()
-        detail.write_parquet(buf_d)
-        cache.put(
-            CACHE_SUBDIR, f"{parsed_cache_id}-detail", buf_d.getvalue(), "parquet"
-        )
+    return zip_bytes, feed_date
 
-        buf_s = io.BytesIO()
-        summary.write_parquet(buf_s)
-        cache.put(
-            CACHE_SUBDIR, f"{parsed_cache_id}-summary", buf_s.getvalue(), "parquet"
-        )
 
-        return detail, summary, sha256, feed_date
+def _parse_zip_to_feed(
+    zip_bytes: bytes,
+    *,
+    dataset_id: str,
+    feed_sha256: str,
+    feed_date: str,
+) -> GTFSFeed:
+    """Parse a GTFS zip's raw tables into a :class:`GTFSFeed` contract.
 
-    finally:
-        if own_client:
-            _client.close()
+    ``dataset_id`` tags any :class:`IngestError` raised on malformed zips so
+    error reporting correctly attributes failures to the originating city
+    feed (e.g. ``"septa-bus"`` vs ``"muni-gtfs"``).
+    """
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    except zipfile.BadZipFile as exc:
+        raise IngestError(
+            dataset_id,
+            f"Downloaded content is not a valid zip file: {exc}",
+        ) from exc
+
+    with zf:
+        try:
+            trips_df = pl.read_csv(
+                io.BytesIO(zf.read("trips.txt")), infer_schema_length=0
+            )
+            stop_times_df = pl.read_csv(
+                io.BytesIO(zf.read("stop_times.txt")), infer_schema_length=0
+            )
+            stops_df = pl.read_csv(
+                io.BytesIO(zf.read("stops.txt")), infer_schema_length=0
+            )
+            routes_df = pl.read_csv(
+                io.BytesIO(zf.read("routes.txt")), infer_schema_length=0
+            )
+        except KeyError as exc:
+            raise IngestError(
+                dataset_id,
+                f"GTFS zip missing required file: {exc}",
+            ) from exc
+
+        calendar_df = _read_optional_csv(zf, "calendar.txt")
+        calendar_dates_df = _read_optional_csv(zf, "calendar_dates.txt")
+        feed_info_df = _read_optional_csv(zf, "feed_info.txt")
+
+    return GTFSFeed(
+        trips_df=trips_df,
+        stop_times_df=stop_times_df,
+        stops_df=stops_df,
+        routes_df=routes_df,
+        calendar_df=calendar_df,
+        calendar_dates_df=calendar_dates_df,
+        feed_info_df=feed_info_df,
+        feed_sha256=feed_sha256,
+        feed_date=feed_date,
+    )

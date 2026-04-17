@@ -63,6 +63,20 @@ def _make_gtfs_zip() -> bytes:
     return buf.getvalue()
 
 
+def _make_gtfs_v2_zip() -> bytes:
+    """Build a GTFS zip with routes.txt for v2 (per-route) frequency tests."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write(FIXTURE_DIR / "trips.txt", "trips.txt")
+        zf.write(FIXTURE_DIR / "stop_times.txt", "stop_times.txt")
+        zf.write(FIXTURE_DIR / "stops.txt", "stops.txt")
+        zf.writestr(
+            "routes.txt",
+            "route_id,route_short_name,route_type\n14,14,3\n28,28,3\n49,49,3\n",
+        )
+    return buf.getvalue()
+
+
 def _ingest_config(tmp_path: Path, ttl_days: int = 30) -> IngestConfig:
     return IngestConfig(cache_dir=tmp_path, cache_ttl_days=ttl_days)
 
@@ -724,3 +738,170 @@ class TestResidentialFilter:
         with patch.object(datasf_mod, "fetch_tabular", side_effect=failing_fetch):
             with pytest.raises(IngestError):
                 fetch_residential_addresses(cfg)
+
+
+# ---------------------------------------------------------------------------
+# fetch_gtfs_feed + compute_frequencies split (Story 5.3 T4 / AC-5)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchGtfsFeedAndComputeFrequencies:
+    """Covers the AC-5 restructure of fetch_gtfs_v2 → GTFSFeed contract."""
+
+    def _full_config(self, tmp_path: Path) -> Config:
+        from muni_walk_access.config import load_config
+
+        config_path = Path(__file__).parent.parent / "config.yaml"
+        cfg = load_config(config_path)
+        return cfg.model_copy(
+            update={"ingest": IngestConfig(cache_dir=tmp_path, cache_ttl_days=30)}
+        )
+
+    def _client(self, zip_bytes: bytes) -> httpx.Client:
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=zip_bytes)
+
+        return httpx.Client(transport=httpx.MockTransport(handler))
+
+    def test_fetch_gtfs_feed_returns_contract_shaped_feed(self, tmp_path: Path) -> None:
+        """fetch_gtfs_feed output conforms to the GTFSFeed contract."""
+        import hashlib
+
+        from muni_walk_access.ingest.contracts import GTFSFeed
+        from muni_walk_access.ingest.gtfs import fetch_gtfs_feed
+
+        config = self._full_config(tmp_path)
+        zip_bytes = _make_gtfs_v2_zip()
+        feed = fetch_gtfs_feed(config, client=self._client(zip_bytes))
+
+        assert isinstance(feed, GTFSFeed)
+        assert feed.feed_sha256 == hashlib.sha256(zip_bytes).hexdigest()
+        # Required tables are present and parsed as DataFrames.
+        assert len(feed.trips_df) > 0
+        assert len(feed.stop_times_df) > 0
+        assert len(feed.stops_df) > 0
+        assert len(feed.routes_df) > 0
+        # Optional calendar tables missing in this fixture → None.
+        assert feed.calendar_df is None
+        assert feed.calendar_dates_df is None
+
+    def test_compute_frequencies_produces_detail_and_summary(
+        self, tmp_path: Path
+    ) -> None:
+        """compute_frequencies(feed, config) returns populated detail+summary."""
+        from muni_walk_access.ingest.gtfs import compute_frequencies, fetch_gtfs_feed
+
+        config = self._full_config(tmp_path)
+        zip_bytes = _make_gtfs_v2_zip()
+        feed = fetch_gtfs_feed(config, client=self._client(zip_bytes))
+        detail, summary = compute_frequencies(feed, config)
+
+        expected_detail_cols = {
+            "stop_id",
+            "route_id",
+            "route_short_name",
+            "time_window",
+            "trips_per_hour",
+            "stop_lat",
+            "stop_lon",
+        }
+        expected_summary_cols = {
+            "stop_id",
+            "time_window",
+            "total_trips_per_hour",
+            "route_count",
+            "best_route_headway_min",
+            "stop_lat",
+            "stop_lon",
+        }
+        assert expected_detail_cols.issubset(set(detail.columns))
+        assert expected_summary_cols.issubset(set(summary.columns))
+        assert len(detail) > 0
+        assert len(summary) > 0
+
+    def test_compute_frequencies_uses_parsed_cache(self, tmp_path: Path) -> None:
+        """Second compute_frequencies call hits the parsed parquet cache."""
+        from muni_walk_access.ingest.gtfs import compute_frequencies, fetch_gtfs_feed
+
+        config = self._full_config(tmp_path)
+        zip_bytes = _make_gtfs_v2_zip()
+        feed = fetch_gtfs_feed(config, client=self._client(zip_bytes))
+
+        detail_a, summary_a = compute_frequencies(feed, config)
+        detail_b, summary_b = compute_frequencies(feed, config)
+
+        assert detail_a.shape == detail_b.shape
+        assert summary_a.shape == summary_b.shape
+
+    def test_fetch_gtfs_feed_dataset_id_drives_meta_filename(
+        self, tmp_path: Path
+    ) -> None:
+        """dataset_id kwarg controls the cache meta filename (AC-6 T4c)."""
+        import json
+
+        from muni_walk_access.ingest.gtfs import CACHE_SUBDIR, fetch_gtfs_feed
+
+        config = self._full_config(tmp_path)
+        zip_bytes = _make_gtfs_v2_zip()
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=zip_bytes,
+                headers={
+                    "last-modified": "Wed, 01 Jan 2026 00:00:00 GMT",
+                    "etag": '"abc123"',
+                },
+            )
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        fetch_gtfs_feed(config, client=client, dataset_id="septa-bus")
+
+        meta_path = tmp_path / CACHE_SUBDIR / "septa-bus-http.json"
+        assert meta_path.exists(), (
+            f"meta filename not derived from dataset_id: {meta_path} missing"
+        )
+        assert json.loads(meta_path.read_text()) == {
+            "etag": '"abc123"',
+            "last_modified": "Wed, 01 Jan 2026 00:00:00 GMT",
+        }
+        zip_files = list((tmp_path / CACHE_SUBDIR).glob("septa-bus-zip-*.zip"))
+        assert zip_files, "Expected zip cache under dataset_id prefix"
+
+    def test_parse_zip_error_carries_dataset_id(self, tmp_path: Path) -> None:
+        """Malformed zip surfaces IngestError tagged with adapter dataset_id."""
+        from muni_walk_access.ingest.gtfs import fetch_gtfs_feed
+
+        config = self._full_config(tmp_path)
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"not a real zip")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with pytest.raises(IngestError) as excinfo:
+            fetch_gtfs_feed(config, client=client, dataset_id="septa-bus")
+        assert excinfo.value.dataset_id == "septa-bus"
+
+    def test_304_without_cache_raises_distinct_error(self, tmp_path: Path) -> None:
+        """304 without a cached zip reports drift, not upstream failure."""
+        import json
+
+        from muni_walk_access.ingest.gtfs import CACHE_SUBDIR, fetch_gtfs_feed
+
+        config = self._full_config(tmp_path)
+        # Seed a meta file so the client sends conditional headers.
+        meta_path = tmp_path / CACHE_SUBDIR / "muni-gtfs-http.json"
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(
+            json.dumps(
+                {"etag": '"x"', "last_modified": "Wed, 01 Jan 2026 00:00:00 GMT"}
+            )
+        )
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(304, content=b"")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with pytest.raises(IngestError) as excinfo:
+            fetch_gtfs_feed(config, client=client)
+        assert "304 Not Modified" in str(excinfo.value)

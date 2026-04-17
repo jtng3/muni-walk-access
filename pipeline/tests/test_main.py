@@ -37,6 +37,28 @@ def _make_mock_stops(n: int = 3) -> pl.DataFrame:
     )
 
 
+def _make_mock_gtfs_feed(
+    sha256: str = "abcdef01",
+    feed_date: str = "Wed, 01 Jan 2026 00:00:00 GMT",
+):
+    """Build a minimal :class:`GTFSFeed` stub for pipeline mocking.
+
+    Tables are empty placeholders; tests that exercise v2 paths mock
+    :func:`compute_frequencies` separately, so no real aggregation runs on
+    these tables.
+    """
+    from muni_walk_access.ingest.contracts import GTFSFeed
+
+    return GTFSFeed(
+        trips_df=pl.DataFrame({"trip_id": [], "service_id": [], "route_id": []}),
+        stop_times_df=pl.DataFrame({"trip_id": [], "stop_id": []}),
+        stops_df=pl.DataFrame({"stop_id": [], "stop_lat": [], "stop_lon": []}),
+        routes_df=pl.DataFrame({"route_id": []}),
+        feed_sha256=sha256,
+        feed_date=feed_date,
+    )
+
+
 def _make_mock_stops_v2(
     n: int = 3,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -151,6 +173,7 @@ class TestMainOrchestration:
         mock_net = MagicMock()
         mock_addresses = _make_mock_addresses(5)
         mock_detail, mock_summary = _make_mock_stops_v2()
+        mock_feed = _make_mock_gtfs_feed()
         mock_result = _make_mock_result(5)
 
         with (
@@ -163,13 +186,12 @@ class TestMainOrchestration:
                 return_value=mock_addresses,
             ),
             patch(
-                "muni_walk_access.__main__.fetch_gtfs_v2",
-                return_value=(
-                    mock_detail,
-                    mock_summary,
-                    "abcdef01",
-                    "Wed, 01 Jan 2026 00:00:00 GMT",
-                ),
+                "muni_walk_access.__main__.fetch_gtfs_feed",
+                return_value=mock_feed,
+            ),
+            patch(
+                "muni_walk_access.__main__.compute_frequencies",
+                return_value=(mock_detail, mock_summary),
             ),
             patch(
                 "muni_walk_access.__main__.route_nearest_stops",
@@ -207,6 +229,7 @@ class TestMainOrchestration:
         mock_net = MagicMock()
         mock_addresses = _make_mock_addresses(5)
         mock_detail, mock_summary = _make_mock_stops_v2()
+        mock_feed = _make_mock_gtfs_feed()
         mock_result = _make_mock_result(5)
 
         with (
@@ -219,14 +242,13 @@ class TestMainOrchestration:
                 return_value=mock_addresses,
             ) as m_addr,
             patch(
-                "muni_walk_access.__main__.fetch_gtfs_v2",
-                return_value=(
-                    mock_detail,
-                    mock_summary,
-                    "abcdef01",
-                    "Wed, 01 Jan 2026 00:00:00 GMT",
-                ),
+                "muni_walk_access.__main__.fetch_gtfs_feed",
+                return_value=mock_feed,
             ) as m_gtfs,
+            patch(
+                "muni_walk_access.__main__.compute_frequencies",
+                return_value=(mock_detail, mock_summary),
+            ),
             patch(
                 "muni_walk_access.__main__.route_nearest_stops",
                 return_value=mock_result,
@@ -269,6 +291,7 @@ class TestMainOrchestration:
 
         mock_addresses = _make_mock_addresses(5)
         mock_detail, mock_summary = _make_mock_stops_v2()
+        mock_feed = _make_mock_gtfs_feed()
         mock_result = _make_mock_result(5)
 
         with (
@@ -281,13 +304,12 @@ class TestMainOrchestration:
                 return_value=mock_addresses,
             ),
             patch(
-                "muni_walk_access.__main__.fetch_gtfs_v2",
-                return_value=(
-                    mock_detail,
-                    mock_summary,
-                    "abcdef01",
-                    "Wed, 01 Jan 2026 00:00:00 GMT",
-                ),
+                "muni_walk_access.__main__.fetch_gtfs_feed",
+                return_value=mock_feed,
+            ),
+            patch(
+                "muni_walk_access.__main__.compute_frequencies",
+                return_value=(mock_detail, mock_summary),
             ),
             patch(
                 "muni_walk_access.__main__.route_nearest_stops",
