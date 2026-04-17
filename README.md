@@ -2,9 +2,7 @@
 
 Transit accessibility analysis for San Francisco. Computes what fraction of every neighborhood's residents are within a given walking time of a transit stop meeting a given frequency threshold — then makes those answers explorable on an interactive map.
 
-**Live site**: _(add your deployed URL once public)_
-
-![Map screenshot placeholder](./docs/screenshot.png)
+**Live site**: https://sfmuni-walk-access.vercel.app/
 
 ---
 

@@ -1,8 +1,7 @@
 import type { GridSchema } from "@/lib/types";
 import NeighborhoodNameList from "./NeighborhoodNameList";
 
-// TODO: set GitHub issues URL once repo is public
-const ISSUES_URL = "https://github.com/jaegertang3/muni-walk-access/issues";
+const ISSUES_URL = "https://github.com/jtng3/muni-walk-access/issues";
 
 interface MapFallbackProps {
   data: GridSchema;
