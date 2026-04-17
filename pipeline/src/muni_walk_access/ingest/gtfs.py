@@ -721,7 +721,7 @@ def fetch_gtfs_feed(
     )
 
     try:
-        zip_bytes, feed_date = _fetch_zip_with_cache_fallback(
+        zip_bytes, feed_date, is_fresh_fetch = _fetch_zip_with_cache_fallback(
             _client,
             cache,
             ctx,
@@ -734,12 +734,19 @@ def fetch_gtfs_feed(
             _client.close()
 
     sha256 = hashlib.sha256(zip_bytes).hexdigest()
-    return _parse_zip_to_feed(
+    # Parse BEFORE caching fresh bytes — a transient upstream serving a 200
+    # with non-zip content (HTML error page, truncated body) would otherwise
+    # poison the cache indefinitely; subsequent runs fall back to cached bad
+    # bytes and keep raising BadZipFile with no recovery path.
+    feed = _parse_zip_to_feed(
         zip_bytes,
         dataset_id=dataset_id,
         feed_sha256=sha256,
         feed_date=feed_date,
     )
+    if is_fresh_fetch:
+        cache.put(cache_subdir, dataset_id + "-zip", zip_bytes, "zip")
+    return feed
 
 
 def compute_frequencies(
@@ -804,12 +811,17 @@ def _fetch_zip_with_cache_fallback(
     url: str,
     dataset_id: str,
     cache_subdir: str,
-) -> tuple[bytes, str]:
-    """HTTP GET with 304 + cache fallback. Returns (zip_bytes, feed_date).
+) -> tuple[bytes, str, bool]:
+    """HTTP GET with 304 + cache fallback. Returns (zip_bytes, feed_date, is_fresh).
 
     ``feed_date`` is the ``last-modified`` header as saved at the time of
     the most recent successful fetch (preserved across 304s and upstream
     failures).
+
+    ``is_fresh`` is True only when upstream returned a 200 with new bytes;
+    the caller uses this to decide whether to cache the zip AFTER parse
+    validation succeeds. Do NOT cache here — a 200 with malformed body
+    (e.g. HTML error page) would poison the cache indefinitely.
     """
     meta_path = cache._dir(cache_subdir) / _meta_filename(dataset_id)
     http_meta: dict[str, str] = {}
@@ -847,6 +859,7 @@ def _fetch_zip_with_cache_fallback(
         logger.warning("GTFS fetch failed from %s: %s", url, exc)
         upstream_failed = True
 
+    is_fresh = False
     if upstream_unchanged or upstream_failed or zip_bytes is None:
         cached_zip = cache.get_any(cache_subdir, dataset_id + "-zip")
         if cached_zip is not None and cached_zip.suffix == ".zip":
@@ -870,8 +883,8 @@ def _fetch_zip_with_cache_fallback(
                 "Warm the cache with network access first.",
             )
     else:
-        # Cache the raw zip (only if we got new data from upstream)
-        cache.put(cache_subdir, dataset_id + "-zip", zip_bytes, "zip")
+        # Fresh upstream 200. Caller caches only after parse validation.
+        is_fresh = True
 
     # Feed date comes from the last saved HTTP metadata (may predate this run).
     feed_date = ""
@@ -882,7 +895,8 @@ def _fetch_zip_with_cache_fallback(
         except (json.JSONDecodeError, OSError):
             pass
 
-    return zip_bytes, feed_date
+    assert zip_bytes is not None  # control flow guarantees non-None by here
+    return zip_bytes, feed_date, is_fresh
 
 
 def _parse_zip_to_feed(

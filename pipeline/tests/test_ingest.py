@@ -905,3 +905,28 @@ class TestFetchGtfsFeedAndComputeFrequencies:
         with pytest.raises(IngestError) as excinfo:
             fetch_gtfs_feed(config, client=client)
         assert "304 Not Modified" in str(excinfo.value)
+
+    def test_malformed_upstream_does_not_poison_zip_cache(self, tmp_path: Path) -> None:
+        """A 200 with non-zip bytes must not be cached (parse-before-cache gate).
+
+        Regression: previously `_fetch_zip_with_cache_fallback` wrote fresh zip
+        bytes to cache BEFORE `_parse_zip_to_feed` validated them. A transient
+        upstream serving a 200 with an HTML error page would poison the cache
+        indefinitely — subsequent runs fell back to cached bad bytes and kept
+        raising BadZipFile with no recovery path. Now: parse first, then cache
+        only on parse success.
+        """
+        from muni_walk_access.ingest.gtfs import CACHE_SUBDIR, fetch_gtfs_feed
+
+        config = self._full_config(tmp_path)
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"<html>error</html>")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with pytest.raises(IngestError, match="not a valid zip"):
+            fetch_gtfs_feed(config, client=client)
+
+        # The critical assertion: no poisoned zip was written to cache.
+        zip_files = list((tmp_path / CACHE_SUBDIR).glob("muni-gtfs-zip-*.zip"))
+        assert zip_files == [], f"Cache was poisoned with non-zip bytes: {zip_files}"

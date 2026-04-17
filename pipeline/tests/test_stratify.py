@@ -334,6 +334,53 @@ class TestComputeLensFlags:
         )
         assert compute_lens_flags(stratified, config) == []
 
+    def test_missing_source_column_warns_and_flags_false(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Config typo (source_column not on DataFrame) warns + flags False.
+
+        Regression: previously `pl.col(<typo>).any()` raised a generic
+        `ColumnNotFoundError` with no lens context. Now the diagnostic is
+        lens-scoped and the lens flag defaults to False rather than
+        silently True, so misconfiguration surfaces as "not flagged"
+        instead of "always flagged".
+        """
+        import logging
+
+        from muni_walk_access.config import LensConfig
+
+        config = _full_config().model_copy(
+            update={
+                "lenses": [
+                    LensConfig(
+                        id="analysis_neighborhoods",
+                        datasf_id="j2bu-swwd",
+                        label="Analysis Neighborhoods",
+                    ),
+                    LensConfig(
+                        id="ej_communities",
+                        datasf_id="y6ci-vpnb",
+                        label="EJ",
+                        source_column="ej_TYPO_column",
+                    ),
+                ]
+            }
+        )
+        stratified = pl.DataFrame(
+            {
+                "neighborhood_id": ["a", "a"],
+                "neighborhood_name": ["A", "A"],
+                "ej_community": [True, False],
+            }
+        )
+        with caplog.at_level(logging.WARNING):
+            flags = compute_lens_flags(stratified, config)
+        assert len(flags) == 1
+        assert flags[0]["lens_flags"]["ej_communities"] is False
+        assert flags[0]["lens_flags"]["analysis_neighborhoods"] is True
+        assert "ej_communities" in caplog.text
+        assert "ej_TYPO_column" in caplog.text
+
 
 # ---------------------------------------------------------------------------
 # T5: compute_grid tests
@@ -885,13 +932,20 @@ class TestBoundarySourceDispatch:
     def test_datasf_boundary_source_handles_crs_less_gdf(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Regression: CRS-less GeoJSON uses set_crs, not to_crs (5-4 safety net).
+        """Regression: CRS-less GeoDataFrame uses set_crs, not to_crs (5-4 safety net).
 
         DataSF's SODA endpoint always ships WGS84 metadata so SF never exercises
         this branch; Philly's PennEnviroScreen (Story 5-4 via
         `GenericURLBoundarySource`) may ship CRS-less geometry. Testing here
         pins the safe `set_crs` path and prevents a pyproj raise when the
         shared pattern lands for the generic adapter.
+
+        Mocks `gpd.read_file` directly to return a CRS-less GDF rather than
+        writing a geojson file and reading it back — GeoJSON RFC 7946
+        implicitly defines WGS84, so a round-trip through the GeoJSON driver
+        may auto-assign CRS on read and silently stop exercising the
+        ``set_crs`` branch. Mocking the read step directly is robust to
+        driver behavior changes.
         """
         from shapely.geometry import box
 
@@ -900,20 +954,24 @@ class TestBoundarySourceDispatch:
         from muni_walk_access.ingest.sources.datasf import DataSFBoundarySource
         from muni_walk_access.run_context import RunContext
 
-        # Write a CRS-less geojson the adapter will read via fetch_geospatial.
         crs_less_gdf = gpd.GeoDataFrame(
             {"nhood": ["X"]}, geometry=[box(-122.5, 37.7, -122.4, 37.8)]
         )
-        assert crs_less_gdf.crs is None
-        geojson_path = tmp_path / "crs-less.geojson"
-        crs_less_gdf.to_file(geojson_path, driver="GeoJSON")
+        assert crs_less_gdf.crs is None  # pin the test precondition
 
-        # Stub fetch_geospatial to return our CRS-less path without HTTP.
+        # Stub both the network fetch and the file read. The adapter calls
+        # `fetch_geospatial(...) -> Path` then `gpd.read_file(path)`; mocking
+        # read_file to return our CRS-less gdf directly means the assertion
+        # exercises DataSFBoundarySource's CRS branch without depending on
+        # whether the GeoJSON driver auto-assigns CRS on load.
         import muni_walk_access.ingest.sources.datasf as _datasf_mod
 
         monkeypatch.setattr(
-            _datasf_mod, "fetch_geospatial", lambda *a, **k: geojson_path
+            _datasf_mod,
+            "fetch_geospatial",
+            lambda *a, **k: tmp_path / "unused.geojson",
         )
+        monkeypatch.setattr(_datasf_mod.gpd, "read_file", lambda _: crs_less_gdf)
 
         cfg: Config = load_config(_CONFIG_PATH).model_copy(update={})
         ctx = RunContext.from_config(

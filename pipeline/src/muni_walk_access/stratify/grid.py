@@ -105,11 +105,25 @@ def compute_grid(
     # hardcodes. Each lens with a `source_column` contributes one agg
     # expr aliased `_lens_<lens.id>` — internal only (not emitted to
     # JSON output), so renames here are byte-identical-neutral.
-    lens_agg_exprs: list[pl.Expr] = [
-        pl.col(lens.source_column).any().alias(f"_lens_{lens.id}")
-        for lens in config.lenses
-        if lens.source_column is not None
-    ]
+    # Missing-column diagnostic: config typos surface as lens-scoped
+    # warnings here rather than a downstream polars ColumnNotFoundError
+    # with no context (matches `_apply_lens_filter`'s warn-and-pass).
+    lens_agg_exprs: list[pl.Expr] = []
+    for lens in config.lenses:
+        if lens.source_column is None:
+            continue
+        if lens.source_column not in df.columns:
+            logger.warning(
+                "Lens %s: source_column %r missing from stratified columns "
+                "(%s); skipping lens aggregation — flag will be False",
+                lens.id,
+                lens.source_column,
+                df.columns,
+            )
+            continue
+        lens_agg_exprs.append(
+            pl.col(lens.source_column).any().alias(f"_lens_{lens.id}")
+        )
 
     grouped = (
         df.group_by("neighborhood_id")
@@ -134,13 +148,18 @@ def compute_grid(
         # verbatim; any rename would break JSON byte-identity.
         lens_flags: dict[str, bool] = {}
         for lens in config.lenses:
+            alias = f"_lens_{lens.id}"
             if lens.source_column is None:
                 # No per-address flag column → "name-providing" lens.
                 # `aggregate_to_lenses` filtered out addresses outside all
                 # boundaries, so every remaining row IS inside this lens.
                 lens_flags[lens.id] = True
+            elif alias not in row:
+                # Missing-column case warned above; emit False so the lens
+                # surfaces as "not flagged" rather than silently True.
+                lens_flags[lens.id] = False
             else:
-                lens_flags[lens.id] = bool(row[f"_lens_{lens.id}"])
+                lens_flags[lens.id] = bool(row[alias])
 
         neighborhoods.append(
             NeighborhoodGrid(

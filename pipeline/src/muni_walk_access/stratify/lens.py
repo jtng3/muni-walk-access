@@ -300,11 +300,24 @@ def compute_lens_flags(
         return []
 
     # Internal alias pattern matches compute_grid: `_lens_<lens.id>`.
-    lens_agg_exprs: list[pl.Expr] = [
-        pl.col(lens.source_column).any().alias(f"_lens_{lens.id}")
-        for lens in config.lenses
-        if lens.source_column is not None
-    ]
+    # Missing-column diagnostic mirrors compute_grid: warn-and-skip rather
+    # than raising an opaque polars ColumnNotFoundError.
+    lens_agg_exprs: list[pl.Expr] = []
+    for lens in config.lenses:
+        if lens.source_column is None:
+            continue
+        if lens.source_column not in stratified.columns:
+            logger.warning(
+                "Lens %s: source_column %r missing from stratified columns "
+                "(%s); skipping lens aggregation — flag will be False",
+                lens.id,
+                lens.source_column,
+                stratified.columns,
+            )
+            continue
+        lens_agg_exprs.append(
+            pl.col(lens.source_column).any().alias(f"_lens_{lens.id}")
+        )
 
     grouped = stratified.group_by("neighborhood_id").agg(
         pl.first("neighborhood_name"),
@@ -316,10 +329,13 @@ def compute_lens_flags(
         # Dict keys are lens.id in config-declared order (byte-identical gate).
         flags: dict[str, bool] = {}
         for lens in config.lenses:
+            alias = f"_lens_{lens.id}"
             if lens.source_column is None:
                 flags[lens.id] = True
+            elif alias not in row:
+                flags[lens.id] = False
             else:
-                flags[lens.id] = bool(row[f"_lens_{lens.id}"])
+                flags[lens.id] = bool(row[alias])
         results.append(
             {
                 "neighborhood_id": row["neighborhood_id"],
