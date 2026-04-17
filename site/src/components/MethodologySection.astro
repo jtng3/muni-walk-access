@@ -203,13 +203,13 @@
 
     <!-- Worked Example -->
     <div class="space-y-4 rounded-xl bg-muted/50 p-6">
-      <h3 class="text-xl font-semibold text-foreground">Worked Example: 2490 Shafter Ave</h3>
+      <h3 class="text-xl font-semibold text-foreground">Worked Example: 1709 Broderick St</h3>
       <p class="text-foreground leading-relaxed">
         To make the method concrete, here is one address traced through the pipeline.
       </p>
       <p class="text-foreground leading-relaxed">
-        <strong>2490 Shafter Ave</strong> sits in the Portola neighborhood, a few blocks north of the
-        Cesar Chavez corridor.
+        <strong>1709 Broderick Street</strong> — better known as the
+        <em>Full House</em> Victorian — sits in Pacific Heights, one block west of Divisadero.
       </p>
       <ol class="list-decimal pl-6 space-y-3 text-foreground leading-relaxed">
         <li>
@@ -219,33 +219,33 @@
         </li>
         <li>
           <strong>Network routing:</strong> The pipeline finds the nearest Muni stop by walking
-          distance through the street network: Cesar Chavez &amp; Potrero, approximately
-          340 meters away.
+          distance through the street network: Divisadero &amp; Bush, served by the
+          24-Divisadero, approximately 216 meters away.
         </li>
         <li>
           <strong>Walking time:</strong> At the standard pace of 20 minutes per mile, that's
-          about 4 minutes.
+          about 2.7 minutes.
         </li>
         <li>
           <strong>Stop frequency:</strong> During AM Rush, this stop is served by buses arriving
-          roughly every 8 minutes.
+          roughly every 12 minutes on average.
         </li>
         <li>
           <strong>Does this address have access?</strong> That depends on the slider settings:
           <ul class="list-disc pl-6 mt-2 space-y-1">
             <li>
-              At <strong>10-min frequency / 5-min walk</strong>: The stop qualifies (every
-              8 min beats every 10), and 4 minutes is within the 5-minute threshold.
+              At <strong>15-min frequency / 5-min walk</strong>: The stop qualifies (12 min
+              beats 15), and 2.7 minutes fits within 5.
               <strong class="text-green-600 dark:text-green-400">Within reach.</strong>
             </li>
             <li>
-              At <strong>6-min frequency / 5-min walk</strong>: The walk is fine, but the stop's
-              8-minute headway doesn't meet the 6-minute bar.
+              At <strong>10-min frequency / 5-min walk</strong> (the defaults): The walk is
+              fine, but the stop's 12-minute headway doesn't meet the 10-minute bar.
               <strong class="text-red-600 dark:text-red-400">Not within reach.</strong>
             </li>
             <li>
-              At <strong>10-min frequency / 3-min walk</strong>: The stop qualifies on frequency,
-              but 4 minutes exceeds the 3-minute walk threshold.
+              At <strong>8-min frequency / 3-min walk</strong>: The 2.7-min walk squeaks under
+              the 3-min threshold, but the 12-minute headway is nowhere near the 8-minute bar.
               <strong class="text-red-600 dark:text-red-400">Not within reach.</strong>
             </li>
           </ul>
@@ -254,6 +254,17 @@
       <p class="text-foreground leading-relaxed">
         Same address, same bus stop, same data. The answer changes depending on what
         you define as "good enough." This is what the sliders are designed to show.
+      </p>
+      <p class="text-sm text-muted-foreground leading-relaxed">
+        Verify the walking distance yourself:
+        <a
+          href="https://www.google.com/maps/dir/?api=1&origin=1709+Broderick+St,+San+Francisco,+CA&destination=Divisadero+%26+Bush,+San+Francisco,+CA&travelmode=walking"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-primary underline underline-offset-2 hover:no-underline"
+        >
+          1709 Broderick St → Divisadero &amp; Bush on Google Maps
+        </a>.
       </p>
     </div>
 
