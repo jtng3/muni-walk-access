@@ -12,7 +12,10 @@ dependencies = [
     "h3>=4.0,<5.0",
 ]
 
-# Geo deps require: brew install gdal geos proj  (added in Story 1.5)
+# Geo deps require: brew install gdal geos proj  (added in Story 1.5).
+# numpy<2 pin: pandana 0.7's compiled cyaccess extension is built against
+# the numpy 1.x ABI and fails to import under numpy 2.x ("numpy.core.multiarray
+# failed to import"). Remove the pin once pandana ships numpy-2-compatible wheels.
 [project.optional-dependencies]
 geospatial = [
     "osmnx>=2.0",
@@ -20,6 +23,10 @@ geospatial = [
     "geopandas>=1.0",
     "pyproj>=3.7",
     "shapely>=2.0",
+    "numpy<2",
+    # polars.to_pandas() is used in stratify/lens.py for the geopandas sjoin
+    # step; polars relies on pyarrow as the default engine for that path.
+    "pyarrow>=15",
 ]
 
 [dependency-groups]
