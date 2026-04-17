@@ -157,8 +157,10 @@ class TestConfigSnapshotSchema:
         "config_hash": "sha256:deadbeef",
         "data_versions": {
             "gtfs_feed_sha256": "sha256:cafebabe",
+            "gtfs_feed_date": "Sun, 15 Mar 2026 00:00:00 GMT",
             "osm_extract_date": "2026-03-15",
             "datasf_timestamps": {"neighborhoods": "2026-01-10T00:00:00Z"},
+            "datasf_data_updated": {"neighborhoods": "2026-01-10T00:00:00+00:00"},
         },
         "config_values": {"walk_speed_kmh": 4.8},
         "upstream_fallback": False,

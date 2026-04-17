@@ -136,6 +136,20 @@ class WalkingConfig(BaseModel):
     pace_min_per_mile: float = Field(gt=0)
 
 
+class RoutingConfig(BaseModel):
+    """Routing search parameters."""
+
+    max_distance_m: float = Field(
+        default=5000.0,
+        gt=0,
+        description=(
+            "Pandana search radius for nearest-stop routing. Addresses whose "
+            "nearest stop lies beyond this are treated as unreachable "
+            "(null distance / stop_id). Tune per city density."
+        ),
+    )
+
+
 class ResidentialFilterConfig(BaseModel):
     """Residential parcel filter configuration.
 
@@ -203,6 +217,7 @@ class Config(BaseModel):
     dev: DevConfig
     ingest: IngestConfig = IngestConfig()
     networks: NetworksConfig = NetworksConfig()
+    routing: RoutingConfig = RoutingConfig()
 
 
 def load_config(path: Path) -> Config:

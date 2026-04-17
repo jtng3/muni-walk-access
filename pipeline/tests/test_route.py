@@ -129,12 +129,18 @@ class TestRouteNearestStops:
         assert abs(result["walk_minutes"][0] - expected_minutes) < 1e-6
 
     def test_no_nan_distances(self) -> None:
-        """T6f: no NaN distances — all addresses get a nearest stop."""
+        """T6f: reachable addresses have non-null distances.
+
+        Fixture places addresses within search radius, so all should be
+        reachable; post-Fix #4, unreachable rows are null-valued (tested
+        separately in test_unreachable_rows_are_nulled).
+        """
         net = _make_tiny_network()
         cfg = _full_config()
         result = route_nearest_stops(net, _make_addresses(3), _make_stops(), cfg)
         assert result["nearest_stop_distance_m"].null_count() == 0
         assert result["walk_minutes"].null_count() == 0
+        assert result["nearest_stop_id"].null_count() == 0
 
     def test_nearest_stop_id_present(self) -> None:
         """T6a (cont.): nearest_stop_id matches the single stop in the fixture."""
@@ -194,14 +200,16 @@ class TestRouteNearestStops:
     # T6g: WARNING logged when addresses hit maxdist clamp
     # ---------------------------------------------------------------------------
 
-    def test_warning_logged_when_addresses_hit_maxdist_clamp(
+    def test_unreachable_rows_are_nulled(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """T6g: WARNING is logged when any address distance >= maxdist (5000m).
+        """Fix #4: unreachable addresses get null distance / walk_minutes / stop_id.
 
         Uses a two-node network with a 6000m edge so every address snaps to
         node 0 and the single stop is at node 1 — network distance 6000m >
-        5000m maxdist → pandana clamps to 5000 → WARNING must be emitted.
+        5000m maxdist → pandana reports no POI in range → output rows must
+        be nulled (previously leaked garbage finite values). A WARNING about
+        unreachable addresses must also be emitted.
         """
         # Two-node network: node 0 at origin, node 1 at lon=6000 (6000m edge)
         node_x = pd.Series([0.0, 6000.0], index=[0, 1])
@@ -220,7 +228,6 @@ class TestRouteNearestStops:
 
         cfg = _full_config()
 
-        # Stop at node 1 (lon=6000, lat=0) — 6000m network distance from node 0
         stops_far = pl.DataFrame(
             {
                 "stop_id": ["FAR_STOP"],
@@ -230,7 +237,6 @@ class TestRouteNearestStops:
             }
         )
 
-        # Addresses near node 0 (lon≈0, lat≈0)
         addresses_near = pl.DataFrame(
             {
                 "address": ["0 Near St", "1 Near St"],
@@ -241,7 +247,51 @@ class TestRouteNearestStops:
 
         logger_name = "muni_walk_access.route.nearest_stop"
         with caplog.at_level(logging.WARNING, logger=logger_name):
-            route_nearest_stops(net_far, addresses_near, stops_far, cfg)
+            result = route_nearest_stops(net_far, addresses_near, stops_far, cfg)
+
+        # All rows unreachable → all three columns null.
+        assert result["nearest_stop_distance_m"].null_count() == len(result)
+        assert result["walk_minutes"].null_count() == len(result)
+        assert result["nearest_stop_id"].null_count() == len(result)
 
         warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("clamp" in msg or "maxdist" in msg for msg in warnings)
+        assert any("unreachable" in msg for msg in warnings)
+
+    def test_reachable_coexists_with_unreachable(self) -> None:
+        """Mixed reachable / unreachable: reachable rows keep values, others null."""
+        # Network: two components — one near origin (reachable to S1), one far.
+        node_x = pd.Series([0.0, 100.0, 10000.0], index=[0, 1, 2])
+        node_y = pd.Series([0.0, 0.0, 0.0], index=[0, 1, 2])
+        edge_from = pd.Series([0, 1])
+        edge_to = pd.Series([1, 0])
+        edge_weights = pd.DataFrame({"length": [100.0, 100.0]})
+        net = pandana.Network(
+            node_x=node_x,
+            node_y=node_y,
+            edge_from=edge_from,
+            edge_to=edge_to,
+            edge_weights=edge_weights,
+            twoway=True,
+        )
+
+        cfg = _full_config()
+        stops = pl.DataFrame(
+            {
+                "stop_id": ["S1"],
+                "stop_lat": [0.0],
+                "stop_lon": [100.0],
+                "trips_per_hour_peak": [4.0],
+            }
+        )
+        # addr 0 near node 0 (reachable), addr 1 near node 2 (unreachable — isolated)
+        addresses = pl.DataFrame(
+            {
+                "address": ["near", "far"],
+                "latitude": [0.0, 0.0],
+                "longitude": [0.0, 10000.0],
+            }
+        )
+        result = route_nearest_stops(net, addresses, stops, cfg)
+        # Exactly one reachable, one unreachable.
+        assert result["nearest_stop_distance_m"].null_count() == 1
+        assert result["nearest_stop_id"].null_count() == 1

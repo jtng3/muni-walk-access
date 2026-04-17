@@ -14,7 +14,6 @@ from muni_walk_access.config import Config
 logger = logging.getLogger(__name__)
 
 _METERS_PER_MILE: float = 1609.34
-_MAX_DIST_METERS: float = 5000.0  # 5 km search radius (generous for SF)
 _POI_CATEGORY: str = "muni_stops"
 
 
@@ -111,10 +110,12 @@ def route_nearest_stops(
     stop_lats: pd.Series = pd.Series(stops["stop_lat"].to_list())
     stop_ids: list[str] = stops["stop_id"].to_list()
 
+    max_dist_m: float = config.routing.max_distance_m
+
     # --- Register Muni stops as POIs (T3b) ---
     net.set_pois(
         category=_POI_CATEGORY,
-        maxdist=_MAX_DIST_METERS,
+        maxdist=max_dist_m,
         maxitems=1,
         x_col=stop_lons,  # longitude = x
         y_col=stop_lats,  # latitude = y
@@ -122,14 +123,15 @@ def route_nearest_stops(
 
     # --- Bulk compute nearest POI for all network nodes (T3c) ---
     distances = net.nearest_pois(
-        distance=_MAX_DIST_METERS,
+        distance=max_dist_m,
         category=_POI_CATEGORY,
         num_pois=1,
         include_poi_ids=True,
     )
     # distances: pandas DataFrame indexed by node_id
-    #   column 1    → distance to nearest stop (meters)
-    #   column "poi1" → 0-based index into the stop arrays passed to set_pois
+    #   column 1    → distance to nearest stop (meters); pandana returns the
+    #                 search horizon (max_dist_m) when no stop is in range
+    #   column "poi1" → 0-based index into the stop arrays; NaN when none
 
     # --- Snap addresses to nearest network nodes (T3d) ---
     addr_lons = addresses["longitude"].to_numpy()
@@ -137,19 +139,21 @@ def route_nearest_stops(
     node_ids = net.get_node_ids(addr_lons, addr_lats)  # lon=x, lat=y
 
     # Look up pre-computed results for each address's nearest node.
-    # When no stop is within maxdist, pandana returns NaN for poi1.
     network_distances = distances.loc[node_ids, 1].to_numpy()
     raw_poi_idx = distances.loc[node_ids, "poi1"].to_numpy()
-    # Track which addresses are unreachable (NaN poi index).
-    reachable = ~np.isnan(raw_poi_idx)
-    # Safe int cast: fill NaN with 0 for indexing only; unreachable rows
-    # get null stop_id below.
-    addr_poi_idx = np.where(reachable, raw_poi_idx, 0).astype(int)
+    # Reachable: pandana returned a POI index (not NaN) AND the network distance
+    # is below the search horizon (pandana fills maxdist for unreachable nodes).
+    reachable = (~np.isnan(raw_poi_idx)) & (network_distances < max_dist_m)
+    # Safe int cast for indexing only; unreachable rows get nulled downstream.
+    addr_poi_idx = np.where(reachable, np.nan_to_num(raw_poi_idx, nan=0), 0).astype(int)
 
     # --- Snapping distance correction ---
     # pandana gives node-to-node distance only. Add the Euclidean distance
     # from each address to its nearest node, and from each stop to its
     # nearest node, so the total reflects the full door-to-stop walk.
+    # NOTE: this slightly over-estimates when the snap is parallel to the
+    # sidewalk and slightly under-estimates when the snap requires walking
+    # around a building. Error is typically <10m for SF's street grid.
     nodes = net.nodes_df
     node_x = nodes.loc[node_ids, "x"].to_numpy()
     node_y = nodes.loc[node_ids, "y"].to_numpy()
@@ -172,42 +176,55 @@ def route_nearest_stops(
         + ((stop_lat_arr - stop_node_y) * 111_320.0) ** 2
     )
 
-    # Total = address snap + network path + stop snap
-    addr_distances = network_distances + addr_snap_m + stop_snap_m[addr_poi_idx]
+    # Total distance for reachable rows; NaN for unreachable (propagates to
+    # null in the output DataFrame via pl.Series).
+    addr_distances = np.where(
+        reachable,
+        network_distances + addr_snap_m + stop_snap_m[addr_poi_idx],
+        np.nan,
+    )
 
-    # --- Warn if any addresses hit the maxdist clamp (T3h) ---
-    clamped = int((addr_distances >= _MAX_DIST_METERS).sum())
-    if clamped > 0:
+    # --- Warn on unreachable addresses (T3h) ---
+    # Check on the raw network distance (pre-snap) to avoid conflating
+    # near-clamp reachable rows with true unreachable rows.
+    unreachable_count = int((~reachable).sum())
+    if unreachable_count > 0:
         logger.warning(
-            "%d address(es) hit the maxdist clamp (%gm) — possible data issue",
-            clamped,
-            _MAX_DIST_METERS,
+            "%d address(es) unreachable within %.0fm — nulled in output",
+            unreachable_count,
+            max_dist_m,
         )
 
-    mean_dist = float(np.nanmean(addr_distances))
-    median_dist = float(np.nanmedian(addr_distances))
-    max_dist = float(np.nanmax(addr_distances))
+    mean_dist = float(np.nanmean(addr_distances)) if reachable.any() else 0.0
+    median_dist = float(np.nanmedian(addr_distances)) if reachable.any() else 0.0
+    max_dist_observed = float(np.nanmax(addr_distances)) if reachable.any() else 0.0
     logger.info(
-        "Routing complete: mean=%.1fm median=%.1fm max=%.1fm",
+        "Routing complete: reachable=%d/%d mean=%.1fm median=%.1fm max=%.1fm",
+        int(reachable.sum()),
+        len(addresses),
         mean_dist,
         median_dist,
-        max_dist,
+        max_dist_observed,
     )
 
     # --- Map poi index → stop_id (T3e) ---
-    # Unreachable addresses (NaN poi) get null stop_id instead of a wrong ID.
+    # Unreachable addresses get null stop_id.
     nearest_stop_ids: list[str | None] = [
         stop_ids[i] if r else None for i, r in zip(addr_poi_idx, reachable)
     ]
 
     # --- Compute walk_minutes (T3f) ---
+    # NaN distances propagate to NaN walk_minutes (→ null in the output).
     pace = config.walking.pace_min_per_mile
     walk_minutes = (addr_distances / _METERS_PER_MILE) * pace
 
     # --- Join results back to addresses (T3g) ---
+    # NaN → null so downstream is_not_null() / null_count() reflect reachability.
     result = addresses.with_columns(
-        pl.Series("nearest_stop_distance_m", addr_distances, dtype=pl.Float64),
-        pl.Series("walk_minutes", walk_minutes, dtype=pl.Float64),
+        pl.Series("nearest_stop_distance_m", addr_distances, dtype=pl.Float64).fill_nan(
+            None
+        ),
+        pl.Series("walk_minutes", walk_minutes, dtype=pl.Float64).fill_nan(None),
         pl.Series("nearest_stop_id", nearest_stop_ids, dtype=pl.Utf8),
     )
 

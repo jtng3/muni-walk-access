@@ -23,6 +23,11 @@ grid:
 walking:
   pace_min_per_mile: 20.0
 
+# Nearest-stop routing search radius. Addresses whose closest stop is farther
+# than this are treated as unreachable (null distance in output). Tune per city.
+routing:
+  max_distance_m: 5000.0
+
 residential_filter:
   parcel_dataset_id: "TBD_FROM_LUKE"
   use_codes_residential: ["SRES", "MRES"]  # Actual wv5m-vpq2 codes; update when Luke confirms dataset

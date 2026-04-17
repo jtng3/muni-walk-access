@@ -102,6 +102,9 @@ def _make_mock_stratify_return(
         pl.lit(False).alias("ej_community"),
         pl.lit(False).alias("equity_strategy"),
         pl.lit(4.0).alias("trips_per_hour_peak"),
+        # best_route_headway_min triggers the v2 headway scoring branch in
+        # __main__._run_pipeline — without it the headway code path is dead-tested.
+        pl.lit(15.0).alias("best_route_headway_min"),
     )
     lens_flags_data: list[dict[str, object]] = [
         {
@@ -161,7 +164,12 @@ class TestMainOrchestration:
             ),
             patch(
                 "muni_walk_access.__main__.fetch_gtfs_v2",
-                return_value=(mock_detail, mock_summary, "abcdef01"),
+                return_value=(
+                    mock_detail,
+                    mock_summary,
+                    "abcdef01",
+                    "Wed, 01 Jan 2026 00:00:00 GMT",
+                ),
             ),
             patch(
                 "muni_walk_access.__main__.route_nearest_stops",
@@ -212,7 +220,12 @@ class TestMainOrchestration:
             ) as m_addr,
             patch(
                 "muni_walk_access.__main__.fetch_gtfs_v2",
-                return_value=(mock_detail, mock_summary, "abcdef01"),
+                return_value=(
+                    mock_detail,
+                    mock_summary,
+                    "abcdef01",
+                    "Wed, 01 Jan 2026 00:00:00 GMT",
+                ),
             ) as m_gtfs,
             patch(
                 "muni_walk_access.__main__.route_nearest_stops",
@@ -269,7 +282,12 @@ class TestMainOrchestration:
             ),
             patch(
                 "muni_walk_access.__main__.fetch_gtfs_v2",
-                return_value=(mock_detail, mock_summary, "abcdef01"),
+                return_value=(
+                    mock_detail,
+                    mock_summary,
+                    "abcdef01",
+                    "Wed, 01 Jan 2026 00:00:00 GMT",
+                ),
             ),
             patch(
                 "muni_walk_access.__main__.route_nearest_stops",

@@ -23,35 +23,32 @@ Metric = Literal["aggregate", "headway"]
 logger = logging.getLogger(__name__)
 
 
-def _compute_neighbourhood_grid(
-    nbhd_df: pl.DataFrame,
+def _build_meets_exprs(
     freq_thresholds: list[int],
     walk_thresholds: list[int],
-    metric: Metric = "aggregate",
-) -> list[list[float]]:
-    """Compute the pct_within matrix for one neighbourhood."""
-    population = len(nbhd_df)
-    if population == 0:
-        return [[0.0] * len(walk_thresholds) for _ in freq_thresholds]
+    metric: Metric,
+) -> tuple[list[str], list[pl.Expr]]:
+    """Build the freq×walk boolean columns shared by neighborhood and hex paths.
 
-    grid: list[list[float]] = []
-    for f_thresh in freq_thresholds:
-        row: list[float] = []
-        for w_thresh in walk_thresholds:
-            if metric == "headway":
-                # Lower headway = better; null headway → does not meet threshold
-                freq_expr = pl.col("best_route_headway_min").is_not_null() & (
-                    pl.col("best_route_headway_min") <= f_thresh
-                )
-            else:
-                trips_needed = 60.0 / f_thresh
-                freq_expr = pl.col("trips_per_hour_peak") >= trips_needed
-            count = nbhd_df.filter(
-                freq_expr & (pl.col("walk_minutes") <= w_thresh)
-            ).height
-            row.append(round(count / population, 4))
-        grid.append(row)
-    return grid
+    Returns ``(names, exprs)`` where each expression is True when a row meets
+    the corresponding ``(freq_thresh, walk_thresh)`` pair. Null frequency values
+    evaluate to False (``is_not_null() & …``).
+    """
+    names: list[str] = []
+    exprs: list[pl.Expr] = []
+    for fi, f_thresh in enumerate(freq_thresholds):
+        if metric == "headway":
+            freq_expr = pl.col("best_route_headway_min").is_not_null() & (
+                pl.col("best_route_headway_min") <= f_thresh
+            )
+        else:
+            trips_needed = 60.0 / f_thresh
+            freq_expr = pl.col("trips_per_hour_peak") >= trips_needed
+        for wi, w_thresh in enumerate(walk_thresholds):
+            name = f"_m{fi}_{wi}"
+            names.append(name)
+            exprs.append((freq_expr & (pl.col("walk_minutes") <= w_thresh)).alias(name))
+    return names, exprs
 
 
 def compute_grid(
@@ -60,6 +57,11 @@ def compute_grid(
     metric: Metric = "aggregate",
 ) -> tuple[list[NeighborhoodGrid], CityWide]:
     """Compute 2D accessibility grids per neighbourhood and city-wide.
+
+    Vectorized: pre-computes threshold boolean columns once, then uses a single
+    ``group_by("neighborhood_id") + mean()`` pass instead of the old per-cell
+    filter loop (Story 1.11 pattern, ~12,600 filter passes → 1 group_by per
+    call).
 
     Args:
         stratified: DataFrame from ``aggregate_to_lenses`` with
@@ -70,7 +72,8 @@ def compute_grid(
 
     Returns:
         ``(neighborhoods, city_wide)`` — neighbourhoods sorted ascending
-        by ``id``.
+        by ``id``. City-wide is computed directly from the global df (not by
+        re-aggregating rounded per-neighborhood values).
 
     """
     freq_thresholds = config.grid.frequency_threshold_min
@@ -86,56 +89,52 @@ def compute_grid(
         empty: list[list[float]] = [[0.0] * n_walk for _ in range(n_freq)]
         return [], CityWide(pct_within=empty)
 
-    # Group by neighbourhood, sorted by id
-    nbhd_ids = sorted(stratified["neighborhood_id"].unique().to_list())
+    names, exprs = _build_meets_exprs(freq_thresholds, walk_thresholds, metric)
+    df = stratified.with_columns(exprs)
+
+    # Aggregate per neighbourhood.
+    # mean() on a boolean column treats nulls as nulls, so fill_null(False)
+    # mirrors the old filter semantics where null freq never meets the threshold.
+    mean_exprs: list[pl.Expr] = [
+        pl.col(c).fill_null(value=False).cast(pl.Float64).mean().round(4).alias(c)
+        for c in names
+    ]
+    grouped = (
+        df.group_by("neighborhood_id")
+        .agg(
+            pl.first("neighborhood_name").alias("neighborhood_name"),
+            pl.col("ej_community").any().alias("_ej"),
+            pl.col("equity_strategy").any().alias("_eq"),
+            pl.len().alias("_population"),
+            *mean_exprs,
+        )
+        .sort("neighborhood_id")
+    )
 
     neighborhoods: list[NeighborhoodGrid] = []
-    total_pop = 0
-    city_sum: list[list[float]] = [[0.0] * n_walk for _ in range(n_freq)]
-
-    for nbhd_id in nbhd_ids:
-        nbhd_df = stratified.filter(pl.col("neighborhood_id") == nbhd_id)
-        population = nbhd_df.height
-        total_pop += population
-        nbhd_name: str = nbhd_df["neighborhood_name"][0]
-
-        # Lens flags
-        ej_flag = bool(nbhd_df["ej_community"].any())
-        eq_flag = bool(nbhd_df["equity_strategy"].any())
-        lens_flags = LensFlags(
-            analysis_neighborhoods=True,
-            ej_communities=ej_flag,
-            equity_strategy=eq_flag,
-        )
-
-        pct_within = _compute_neighbourhood_grid(
-            nbhd_df, freq_thresholds, walk_thresholds, metric=metric
-        )
-
-        # Accumulate weighted sums for city-wide
-        for fi in range(n_freq):
-            for wi in range(n_walk):
-                city_sum[fi][wi] += pct_within[fi][wi] * population
-
+    for row in grouped.iter_rows(named=True):
+        pct_within = [
+            [row[f"_m{fi}_{wi}"] for wi in range(n_walk)] for fi in range(n_freq)
+        ]
         neighborhoods.append(
             NeighborhoodGrid(
-                id=nbhd_id,
-                name=nbhd_name,
-                population=population,
-                lens_flags=lens_flags,
+                id=row["neighborhood_id"],
+                name=row["neighborhood_name"],
+                population=row["_population"],
+                lens_flags=LensFlags(
+                    analysis_neighborhoods=True,
+                    ej_communities=bool(row["_ej"]),
+                    equity_strategy=bool(row["_eq"]),
+                ),
                 pct_within=pct_within,
             )
         )
 
-    # City-wide population-weighted average
-    if total_pop == 0:
-        city_pct: list[list[float]] = [[0.0] * n_walk for _ in range(n_freq)]
-    else:
-        city_pct = [
-            [round(city_sum[fi][wi] / total_pop, 4) for wi in range(n_walk)]
-            for fi in range(n_freq)
-        ]
-
+    # City-wide: compute directly from the global df (no round-then-reweight).
+    city_row = df.select(mean_exprs).row(0, named=True)
+    city_pct = [
+        [city_row[f"_m{fi}_{wi}"] for wi in range(n_walk)] for fi in range(n_freq)
+    ]
     city_wide = CityWide(pct_within=city_pct)
 
     headline = city_pct[freq_idx][walk_idx]
@@ -228,30 +227,12 @@ def compute_hex_grids(
     if f"h3_r{resolutions[0]}" not in stratified.columns:
         stratified = assign_hex_cells(stratified, resolutions)
 
-    df = stratified
-
-    # Pre-compute the freq×walk boolean columns once (shared across all resolutions).
-    # Null values → null AND anything → null → fill_null(False) = False,
-    # consistent with the existing filter-based approach in _compute_neighbourhood_grid.
-    meets_names: list[str] = []
-    meets_exprs: list[pl.Expr] = []
-    for fi, f_thresh in enumerate(freq_thresholds):
-        if metric == "headway":
-            # Lower headway = better; null → does not meet threshold
-            freq_expr = pl.col("best_route_headway_min").is_not_null() & (
-                pl.col("best_route_headway_min") <= f_thresh
-            )
-        else:
-            trips_needed = 60.0 / f_thresh
-            freq_expr = pl.col("trips_per_hour_peak") >= trips_needed
-        for wi, w_thresh in enumerate(walk_thresholds):
-            name = f"_m{fi}_{wi}"
-            meets_names.append(name)
-            meets_exprs.append(
-                (freq_expr & (pl.col("walk_minutes") <= w_thresh)).alias(name)
-            )
-
-    df = df.with_columns(meets_exprs)
+    # Pre-compute the freq×walk boolean columns once (shared across resolutions).
+    # Null freq → False (never meets threshold); see _build_meets_exprs.
+    meets_names, meets_exprs = _build_meets_exprs(
+        freq_thresholds, walk_thresholds, metric
+    )
+    df = stratified.with_columns(meets_exprs)
 
     # Aggregate expressions: mean of each boolean column (null → 0) per cell
     agg_exprs: list[pl.Expr] = [

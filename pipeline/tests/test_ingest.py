@@ -365,7 +365,7 @@ class TestFetchGtfs:
         """T9f: DataFrame has stop_id, trips_per_hour_peak, stop_lat, stop_lon."""
         config = self._full_config(tmp_path)
         zip_bytes = _make_gtfs_zip()
-        df, sha256 = fetch_gtfs(config, client=self._client(zip_bytes))
+        df, sha256, _feed_date = fetch_gtfs(config, client=self._client(zip_bytes))
         assert "stop_id" in df.columns
         assert "trips_per_hour_peak" in df.columns
         assert "stop_lat" in df.columns
@@ -377,7 +377,7 @@ class TestFetchGtfs:
 
         config = self._full_config(tmp_path)
         zip_bytes = _make_gtfs_zip()
-        _, sha256 = fetch_gtfs(config, client=self._client(zip_bytes))
+        _, sha256, _feed_date = fetch_gtfs(config, client=self._client(zip_bytes))
         expected = hashlib.sha256(zip_bytes).hexdigest()
         assert sha256 == expected
 
@@ -385,7 +385,7 @@ class TestFetchGtfs:
         """T9j: stops outside peak window (S004 in fixture) are excluded."""
         config = self._full_config(tmp_path)
         zip_bytes = _make_gtfs_zip()
-        df, _ = fetch_gtfs(config, client=self._client(zip_bytes))
+        df, _sha, _feed_date = fetch_gtfs(config, client=self._client(zip_bytes))
         stop_ids = df["stop_id"].to_list()
         # S004 is only served at 10:00+ — outside 07:00–09:00 peak
         assert "S004" not in stop_ids
@@ -397,7 +397,7 @@ class TestFetchGtfs:
         """S001 has 8 trips in 2hr window → 4 trips/hr."""
         config = self._full_config(tmp_path)
         zip_bytes = _make_gtfs_zip()
-        df, _ = fetch_gtfs(config, client=self._client(zip_bytes))
+        df, _sha, _feed_date = fetch_gtfs(config, client=self._client(zip_bytes))
         s001 = df.filter(pl.col("stop_id") == "S001")
         assert len(s001) == 1
         assert abs(s001["trips_per_hour_peak"][0] - 4.0) < 0.01
@@ -412,6 +412,152 @@ class TestFetchGtfs:
         client = httpx.Client(transport=httpx.MockTransport(handler))
         with pytest.raises(IngestError):
             fetch_gtfs(config, client=client)
+
+
+# ---------------------------------------------------------------------------
+# Calendar correctness tests (Fix #3, audit 2026-04-16 A1)
+# ---------------------------------------------------------------------------
+
+
+class TestCalendarCorrectness:
+    """Verify _get_active_service_ids applies date-range + calendar_dates."""
+
+    def _make_zip_with_calendar(
+        self,
+        calendar_csv: str,
+        calendar_dates_csv: str | None = None,
+    ) -> bytes:
+        """Build a GTFS zip with custom calendar files on top of the minimal fixture."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(FIXTURE_DIR / "trips.txt", "trips.txt")
+            zf.write(FIXTURE_DIR / "stop_times.txt", "stop_times.txt")
+            zf.write(FIXTURE_DIR / "stops.txt", "stops.txt")
+            zf.writestr("calendar.txt", calendar_csv)
+            if calendar_dates_csv is not None:
+                zf.writestr("calendar_dates.txt", calendar_dates_csv)
+        return buf.getvalue()
+
+    def test_date_range_excludes_stale_service(self) -> None:
+        """A service_id whose end_date is in the past is excluded.
+
+        Prevents the "overlapping seasons doubles trips" bug from A1.
+        """
+        from muni_walk_access.ingest.gtfs import _get_active_service_ids
+
+        # ACTIVE: Jan-Dec 2026 weekday service.
+        # STALE: Jan-Jun 2020 weekday service — ended years ago.
+        calendar_csv = (
+            "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,"
+            "start_date,end_date\n"
+            "ACTIVE,1,1,1,1,1,0,0,20260101,20261231\n"
+            "STALE,1,1,1,1,1,0,0,20200101,20200601\n"
+        )
+        zf = zipfile.ZipFile(io.BytesIO(self._make_zip_with_calendar(calendar_csv)))
+        result = _get_active_service_ids(zf, "weekday")
+        assert result == {"ACTIVE"}
+        assert "STALE" not in result
+
+    def test_calendar_dates_removes_service(self) -> None:
+        """exception_type=2 in calendar_dates.txt removes service on that date."""
+        from muni_walk_access.ingest.gtfs import (
+            _get_active_service_ids,
+            _pick_reference_date,
+        )
+
+        # Wide validity window so ref_date lands mid-window.
+        calendar_csv = (
+            "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,"
+            "start_date,end_date\n"
+            "WD,1,1,1,1,1,0,0,20260101,20261231\n"
+        )
+        ref = _pick_reference_date(
+            pl.read_csv(
+                io.BytesIO(calendar_csv.encode()),
+                infer_schema_length=0,
+            ),
+            "weekday",
+        )
+        ref_str = ref.strftime("%Y%m%d")
+        calendar_dates_csv = f"service_id,date,exception_type\nWD,{ref_str},2\n"
+        zf = zipfile.ZipFile(
+            io.BytesIO(self._make_zip_with_calendar(calendar_csv, calendar_dates_csv))
+        )
+        result = _get_active_service_ids(zf, "weekday")
+        assert result == set(), (
+            f"WD should be excluded by exception_type=2 on {ref_str}"
+        )
+
+    def test_calendar_dates_adds_service(self) -> None:
+        """exception_type=1 adds a service_id that's not in calendar.txt."""
+        from muni_walk_access.ingest.gtfs import (
+            _get_active_service_ids,
+            _pick_reference_date,
+        )
+
+        calendar_csv = (
+            "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,"
+            "start_date,end_date\n"
+            "WD,1,1,1,1,1,0,0,20260101,20261231\n"
+        )
+        ref = _pick_reference_date(
+            pl.read_csv(io.BytesIO(calendar_csv.encode()), infer_schema_length=0),
+            "weekday",
+        )
+        ref_str = ref.strftime("%Y%m%d")
+        calendar_dates_csv = f"service_id,date,exception_type\nSPECIAL,{ref_str},1\n"
+        zf = zipfile.ZipFile(
+            io.BytesIO(self._make_zip_with_calendar(calendar_csv, calendar_dates_csv))
+        )
+        result = _get_active_service_ids(zf, "weekday")
+        assert result == {"WD", "SPECIAL"}
+
+    def test_no_calendar_files_returns_empty(self) -> None:
+        """Both calendar files absent → empty set (backward-compat)."""
+        from muni_walk_access.ingest.gtfs import _get_active_service_ids
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(FIXTURE_DIR / "trips.txt", "trips.txt")
+            zf.write(FIXTURE_DIR / "stop_times.txt", "stop_times.txt")
+            zf.write(FIXTURE_DIR / "stops.txt", "stops.txt")
+        zf2 = zipfile.ZipFile(io.BytesIO(buf.getvalue()))
+        result = _get_active_service_ids(zf2, "weekday")
+        assert result == set()
+
+    def test_hardcoded_date_inclusion(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Pin ``date.today()`` to a known value and verify exceptions apply.
+
+        Breaks the circularity in the other calendar_dates tests which use
+        ``_pick_reference_date`` to compute the ref string from inside the test.
+        With today = 2026-06-17 (a Wednesday), the picker returns 2026-06-17
+        directly (today is inside the window, no DOW shift needed).
+        """
+        from muni_walk_access.ingest import gtfs as gtfs_mod
+        from muni_walk_access.ingest.gtfs import _get_active_service_ids
+
+        class _FixedDate(date):
+            @classmethod
+            def today(cls) -> date:  # type: ignore[override]
+                return date(2026, 6, 17)  # Wednesday
+
+        monkeypatch.setattr(gtfs_mod, "date", _FixedDate)
+
+        calendar_csv = (
+            "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,"
+            "start_date,end_date\n"
+            "WD,1,1,1,1,1,0,0,20260101,20261231\n"
+        )
+        # Exception removes WD on exactly 2026-06-17 (a holiday).
+        calendar_dates_csv = (
+            "service_id,date,exception_type\nWD,20260617,2\nHOLIDAY_WD,20260617,1\n"
+        )
+        zf = zipfile.ZipFile(
+            io.BytesIO(self._make_zip_with_calendar(calendar_csv, calendar_dates_csv))
+        )
+        result = _get_active_service_ids(zf, "weekday")
+        # WD should be removed by exception_type=2, HOLIDAY_WD added by type=1.
+        assert result == {"HOLIDAY_WD"}
 
 
 # ---------------------------------------------------------------------------

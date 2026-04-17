@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import zipfile
+from datetime import date, timedelta
 
 import httpx
 import polars as pl
@@ -50,43 +51,179 @@ def _parse_peak_seconds(time_str: str) -> int:
     return int(h) * 3600 + int(m) * 60
 
 
-def _get_service_ids(zf: zipfile.ZipFile, service_days: str) -> set[str]:
-    """Read calendar.txt and return service_ids matching the requested day type.
+_DAY_COLUMNS: dict[str, list[str]] = {
+    "weekday": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    "saturday": ["saturday"],
+    "sunday": ["sunday"],
+}
+# Which day-of-week to land on when picking a representative reference date.
+# weekday → Wednesday (midweek, avoids Monday holidays / Friday early-outs).
+_TARGET_WEEKDAY_INDEX: dict[str, int] = {
+    "weekday": 2,  # Wednesday
+    "saturday": 5,
+    "sunday": 6,
+}
+
+
+def _read_optional_csv(zf: zipfile.ZipFile, name: str) -> pl.DataFrame | None:
+    """Read an optional GTFS CSV; return None if absent or empty."""
+    try:
+        raw = zf.read(name)
+    except KeyError:
+        return None
+    if not raw.strip():
+        return None
+    return pl.read_csv(io.BytesIO(raw), infer_schema_length=0)
+
+
+def _pick_reference_date(cal_df: pl.DataFrame | None, service_days: str) -> date:
+    """Pick a representative date inside an active feed window.
+
+    Priority:
+      1. Today, if today falls inside any ``[start_date, end_date]`` window.
+      2. Midpoint of the newest (max ``end_date``) service window.
+      3. Today, if ``calendar.txt`` is missing or unparseable.
+
+    Then shift forward to the target day-of-week (Wed for weekday, Sat, Sun).
+
+    Avoiding the naive global min/max-midpoint: when an old (stale) service
+    and a current service coexist, the midpoint can land in the gap between
+    them and match neither — which would then incorrectly include *both*
+    (the later date-range filter would exclude both, yielding empty set).
+    """
+    target_dow = _TARGET_WEEKDAY_INDEX[service_days]
+    today = date.today()
+
+    def _shift_to_dow(d: date) -> date:
+        return d + timedelta(days=(target_dow - d.weekday()) % 7)
+
+    if cal_df is None or len(cal_df) == 0 or "start_date" not in cal_df.columns:
+        return _shift_to_dow(today)
+
+    try:
+        windows: list[tuple[date, date]] = []
+        for s, e in zip(cal_df["start_date"].to_list(), cal_df["end_date"].to_list()):
+            if (
+                isinstance(s, str)
+                and len(s) == 8
+                and s.isdigit()
+                and isinstance(e, str)
+                and len(e) == 8
+                and e.isdigit()
+            ):
+                windows.append(
+                    (
+                        date(int(s[:4]), int(s[4:6]), int(s[6:8])),
+                        date(int(e[:4]), int(e[4:6]), int(e[6:8])),
+                    )
+                )
+    except (ValueError, TypeError):
+        logger.warning(
+            "calendar.txt date parse error; falling back to today (%s) for ref_date",
+            today.isoformat(),
+        )
+        return _shift_to_dow(today)
+
+    if not windows:
+        logger.warning(
+            "calendar.txt has no parseable start_date/end_date rows; "
+            "falling back to today (%s) for ref_date",
+            today.isoformat(),
+        )
+        return _shift_to_dow(today)
+
+    # (1) today covered by any window → use today.
+    if any(s <= today <= e for s, e in windows):
+        return _shift_to_dow(today)
+
+    # (2) otherwise pick the newest window (by end_date) and take its midpoint.
+    s, e = max(windows, key=lambda w: w[1])
+    mid = date.fromordinal((s.toordinal() + e.toordinal()) // 2)
+    return _shift_to_dow(mid)
+
+
+def _get_active_service_ids(zf: zipfile.ZipFile, service_days: str) -> set[str]:
+    """Return service_ids active on a representative date for the requested day type.
+
+    Reads both ``calendar.txt`` and ``calendar_dates.txt`` (both optional per
+    GTFS spec). Correctness rules applied:
+
+    - Filter ``calendar.txt`` rows by ``start_date ≤ ref_date ≤ end_date`` to
+      exclude stale / not-yet-active service definitions (fixes the
+      overlapping-seasons inflation bug).
+    - Apply ``calendar_dates.txt`` exceptions: add service_ids with
+      ``exception_type=1`` on ref_date; remove service_ids with
+      ``exception_type=2``.
+
+    If BOTH calendar files are absent, return empty set and let the caller
+    skip filtering (preserves backward compatibility with minimal test
+    fixtures that omit the calendar).
 
     Args:
         zf: Open GTFS zip file.
         service_days: One of "weekday", "saturday", or "sunday".
 
     """
-    day_columns = {
-        "weekday": ["monday", "tuesday", "wednesday", "thursday", "friday"],
-        "saturday": ["saturday"],
-        "sunday": ["sunday"],
-    }
-    cols = day_columns.get(service_days)
-    if cols is None:
+    if service_days not in _DAY_COLUMNS:
         raise ValueError(f"Invalid service_days: {service_days!r}")
+    day_cols = _DAY_COLUMNS[service_days]
 
-    try:
-        cal_df = pl.read_csv(io.BytesIO(zf.read("calendar.txt")), infer_schema_length=0)
-    except KeyError:
-        logger.warning("No calendar.txt in GTFS zip; skipping service-day filter")
+    cal_df = _read_optional_csv(zf, "calendar.txt")
+    cal_dates_df = _read_optional_csv(zf, "calendar_dates.txt")
+
+    if cal_df is None and cal_dates_df is None:
+        # TODO(multi-city): raise IngestError here once the per-city GTFSSource
+        # adapter (audit Fix #5, E2) supplies a normalized feed. A feed with no
+        # calendar files at all is invalid per GTFS spec but some publishers
+        # produce them; current behavior skips filtering → counts ALL trips,
+        # which is wrong for weekday metrics on such feeds.
+        logger.warning(
+            "No calendar.txt or calendar_dates.txt in GTFS zip; "
+            "skipping service-day filter (all trips will be counted)"
+        )
         return set()
 
-    # Filter to rows where ALL requested day columns are "1"
-    mask = pl.lit(True)
-    for col in cols:
-        mask = mask & (pl.col(col) == "1")
-    matching = cal_df.filter(mask)
+    ref_date = _pick_reference_date(cal_df, service_days)
+    ref_str = ref_date.strftime("%Y%m%d")
 
-    service_ids = set(matching["service_id"].to_list())
+    # --- From calendar.txt: date-range + day-of-week match ---
+    base_ids: set[str] = set()
+    if cal_df is not None and len(cal_df) > 0:
+        mask = (pl.col("start_date") <= ref_str) & (pl.col("end_date") >= ref_str)
+        for col in day_cols:
+            mask = mask & (pl.col(col) == "1")
+        base_ids = set(cal_df.filter(mask)["service_id"].to_list())
+
+    # --- From calendar_dates.txt: apply exceptions for ref_date ---
+    added: set[str] = set()
+    removed: set[str] = set()
+    if cal_dates_df is not None and len(cal_dates_df) > 0:
+        on_date = cal_dates_df.filter(pl.col("date") == ref_str)
+        added = set(
+            on_date.filter(pl.col("exception_type") == "1")["service_id"].to_list()
+        )
+        removed = set(
+            on_date.filter(pl.col("exception_type") == "2")["service_id"].to_list()
+        )
+
+    service_ids = (base_ids | added) - removed
+
     logger.info(
-        "Calendar filter: service_days=%s → %d service ID(s): %s",
+        "Calendar filter: service_days=%s ref_date=%s → %d service ID(s)"
+        " (base=%d, added=%d, removed=%d): %s",
         service_days,
+        ref_str,
         len(service_ids),
+        len(base_ids),
+        len(added),
+        len(removed),
         sorted(service_ids),
     )
     return service_ids
+
+
+# Backwards-compatible alias for tests / external callers.
+_get_service_ids = _get_active_service_ids
 
 
 def _compute_stop_frequencies(

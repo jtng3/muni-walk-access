@@ -116,18 +116,37 @@ def _run_stratify(
 
 
 def _check_routing_integrity(result: pl.DataFrame, address_count: int) -> None:
-    """Validate routing result integrity and log output statistics."""
+    """Validate routing result integrity and log output statistics.
+
+    Unreachable addresses (no stop within config.routing.max_distance_m) are
+    expected to have null distance/stop_id — they are logged, not an error.
+    An abnormally high null ratio signals a data problem (wrong CRS, bad stop
+    coordinates, OSM network gap) and is surfaced as a WARNING.
+    """
     null_dist = result["nearest_stop_distance_m"].null_count()
-    if null_dist > 0:
-        raise ValueError(
-            f"Integrity: {null_dist} null nearest_stop_distance_m value(s)"
-        )
     null_stop_id = result["nearest_stop_id"].null_count()
-    if null_stop_id > 0:
-        logger.warning(
-            "%d address(es) have null nearest_stop_id (unreachable)",
-            null_stop_id,
+    if null_dist != null_stop_id:
+        raise ValueError(
+            f"Integrity: null distance count ({null_dist}) != "
+            f"null stop_id count ({null_stop_id}) — unreachable rows should "
+            "have both columns null"
         )
+    if null_dist > 0:
+        pct = 100.0 * null_dist / max(len(result), 1)
+        if pct > 5.0:
+            logger.warning(
+                "%d/%d addresses unreachable (%.2f%%) — likely data issue",
+                null_dist,
+                len(result),
+                pct,
+            )
+        else:
+            logger.info(
+                "%d/%d addresses unreachable (%.2f%%)",
+                null_dist,
+                len(result),
+                pct,
+            )
     if len(result) != address_count:
         logger.warning(
             "Result rows (%d) != input address rows (%d) — null lat/lon rows dropped",
