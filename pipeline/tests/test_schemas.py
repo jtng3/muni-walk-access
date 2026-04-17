@@ -47,8 +47,39 @@ class TestGridSchemaRoundTrip:
         nbhd = grid.neighborhoods[0]
         assert nbhd.id == "outer-mission"
         assert nbhd.population == 21430
-        assert nbhd.lens_flags.equity_strategy is True
-        assert nbhd.lens_flags.ej_communities is False
+        assert nbhd.lens_flags["equity_strategy"] is True
+        assert nbhd.lens_flags["ej_communities"] is False
+
+    def test_lens_flags_preserves_insertion_order(self) -> None:
+        """Story 5-2 invariant: dict insertion order drives JSON key order.
+
+        Byte-identical SF output depends on config.yaml lens order matching
+        the old LensFlags Pydantic field order. If a future refactor sorts,
+        re-orders, or otherwise rearranges lens_flags keys, this test fails.
+        """
+        import json
+
+        from muni_walk_access.emit.schemas import NeighborhoodGrid
+
+        grid = [[0.25] * 6 for _ in range(7)]
+        nbhd_a = NeighborhoodGrid(
+            id="x",
+            name="X",
+            population=1,
+            lens_flags={"a": True, "b": False, "c": True},
+            pct_within=grid,
+        )
+        nbhd_b = NeighborhoodGrid(
+            id="y",
+            name="Y",
+            population=1,
+            lens_flags={"c": True, "b": False, "a": True},
+            pct_within=grid,
+        )
+        dump_a = json.loads(nbhd_a.model_dump_json())
+        dump_b = json.loads(nbhd_b.model_dump_json())
+        assert list(dump_a["lens_flags"].keys()) == ["a", "b", "c"]
+        assert list(dump_b["lens_flags"].keys()) == ["c", "b", "a"]
 
     def test_pct_within_dimensions(self) -> None:
         """Verify pct_within matrix dimensions match axes lengths."""

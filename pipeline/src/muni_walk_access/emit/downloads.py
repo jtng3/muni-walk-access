@@ -49,19 +49,23 @@ def write_downloads(
     shutil.copy(geojson_path, geojson_dest)
     written.append(geojson_dest)
 
-    # 2. neighborhoods.parquet — aggregated neighborhood-level data
-    nbhd_df = pl.DataFrame(
-        {
-            "id": [n.id for n in neighborhoods],
-            "name": [n.name for n in neighborhoods],
-            "population": [n.population for n in neighborhoods],
-            "ej_communities": [n.lens_flags.ej_communities for n in neighborhoods],
-            "equity_strategy": [n.lens_flags.equity_strategy for n in neighborhoods],
-            "pct_at_defaults": [
-                n.pct_within[freq_idx][walk_idx] for n in neighborhoods
-            ],
-        }
-    )
+    # 2. neighborhoods.parquet — aggregated neighborhood-level data.
+    # Lens columns are derived from the first neighborhood's lens_flags keys
+    # (config-declared order). This produces one column per lens — including
+    # analysis_neighborhoods, which is always True for SF (it was explicitly
+    # excluded pre-5-2). Accepted schema change; documented in Story 5-2.
+    lens_keys = list(neighborhoods[0].lens_flags.keys()) if neighborhoods else []
+    columns: dict[str, list[object]] = {
+        "id": [n.id for n in neighborhoods],
+        "name": [n.name for n in neighborhoods],
+        "population": [n.population for n in neighborhoods],
+    }
+    for lens_key in lens_keys:
+        columns[lens_key] = [n.lens_flags.get(lens_key, False) for n in neighborhoods]
+    columns["pct_at_defaults"] = [
+        n.pct_within[freq_idx][walk_idx] for n in neighborhoods
+    ]
+    nbhd_df = pl.DataFrame(columns)
     nbhd_parquet = out_dir / f"muni-walk-access-{safe_run_id}-neighborhoods.parquet"
     nbhd_df.write_parquet(nbhd_parquet)
     written.append(nbhd_parquet)

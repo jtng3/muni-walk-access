@@ -14,7 +14,7 @@ import h3
 import polars as pl
 
 from muni_walk_access.config import Config
-from muni_walk_access.emit.schemas import CityWide, HexCell, LensFlags, NeighborhoodGrid
+from muni_walk_access.emit.schemas import CityWide, HexCell, NeighborhoodGrid
 
 # Scoring metric: "aggregate" = total trips/hr (higher is better),
 # "headway" = best single-route headway (lower is better).
@@ -116,16 +116,18 @@ def compute_grid(
         pct_within = [
             [row[f"_m{fi}_{wi}"] for wi in range(n_walk)] for fi in range(n_freq)
         ]
+        # Lens keys are inserted in config-declared order so JSON emit order
+        # matches the pre-refactor LensFlags field order (byte-identical gate).
         neighborhoods.append(
             NeighborhoodGrid(
                 id=row["neighborhood_id"],
                 name=row["neighborhood_name"],
                 population=row["_population"],
-                lens_flags=LensFlags(
-                    analysis_neighborhoods=True,
-                    ej_communities=bool(row["_ej"]),
-                    equity_strategy=bool(row["_eq"]),
-                ),
+                lens_flags={
+                    "analysis_neighborhoods": True,
+                    "ej_communities": bool(row["_ej"]),
+                    "equity_strategy": bool(row["_eq"]),
+                },
                 pct_within=pct_within,
             )
         )

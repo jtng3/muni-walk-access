@@ -9,7 +9,7 @@ import polars as pl
 import pytest
 
 from muni_walk_access.__main__ import main
-from muni_walk_access.emit.schemas import CityWide, LensFlags, NeighborhoodGrid
+from muni_walk_access.emit.schemas import CityWide, NeighborhoodGrid
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 
@@ -122,11 +122,11 @@ def _make_mock_stratify_return(
         id="test-nbhd",
         name="Test Nbhd",
         population=len(result),
-        lens_flags=LensFlags(
-            analysis_neighborhoods=True,
-            ej_communities=False,
-            equity_strategy=False,
-        ),
+        lens_flags={
+            "analysis_neighborhoods": True,
+            "ej_communities": False,
+            "equity_strategy": False,
+        },
         pct_within=empty_grid,
     )
     city_wide = CityWide(pct_within=empty_grid)

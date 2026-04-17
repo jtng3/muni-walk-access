@@ -104,25 +104,32 @@ def _write_lens_verification_doc(
     lens_flags_data: list[dict[str, object]],
 ) -> None:
     """Write lens verification markdown to pipeline/docs/lens-verification.md."""
+    # Derive lens keys from the first row's lens_flags (config-declared order).
+    # Emits one column per lens so the doc adapts to any city's lens set.
+    lens_keys: list[str] = []
+    if lens_flags_data:
+        first_flags: dict[str, object] = lens_flags_data[0].get("lens_flags", {})  # type: ignore[assignment]
+        lens_keys = list(first_flags.keys())
+
+    header_cells = ["Neighbourhood", *lens_keys, "flag_count"]
+    separator_cells = ["---"] * len(header_cells)
     lines = [
         "# Lens Verification — Equity Flag Audit",
         "",
-        "| Neighbourhood | analysis_neighborhoods | ej_communities "
-        "| equity_strategy | flag_count |",
-        "|---|---|---|---|---|",
+        "| " + " | ".join(header_cells) + " |",
+        "| " + " | ".join(separator_cells) + " |",
     ]
     sorted_data = sorted(
         lens_flags_data, key=lambda r: str(r.get("neighborhood_name", ""))
     )
     for row in sorted_data:
         flags: dict[str, object] = row.get("lens_flags", {})  # type: ignore[assignment]
-        lines.append(
-            f"| {row['neighborhood_name']} "
-            f"| {flags.get('analysis_neighborhoods', '')} "
-            f"| {flags.get('ej_communities', '')} "
-            f"| {flags.get('equity_strategy', '')} "
-            f"| {row.get('lens_flag_count', '')} |"
-        )
+        row_cells = [
+            str(row["neighborhood_name"]),
+            *[str(flags.get(k, "")) for k in lens_keys],
+            str(row.get("lens_flag_count", "")),
+        ]
+        lines.append("| " + " | ".join(row_cells) + " |")
     lines.extend(
         [
             "",

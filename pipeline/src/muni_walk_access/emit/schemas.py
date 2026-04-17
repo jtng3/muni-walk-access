@@ -36,14 +36,6 @@ class GridDefaults(BaseModel):
     walking_idx: int
 
 
-class LensFlags(BaseModel):
-    """Boolean equity-lens membership flags for a neighbourhood."""
-
-    analysis_neighborhoods: bool
-    ej_communities: bool
-    equity_strategy: bool
-
-
 class CityWide(BaseModel):
     """City-wide aggregate pct_within accessibility matrix."""
 
@@ -62,7 +54,7 @@ class NeighborhoodGrid(BaseModel):
     id: str
     name: str
     population: int
-    lens_flags: LensFlags
+    lens_flags: dict[str, bool]
     pct_within: list[list[float]]
 
     @field_validator("pct_within", mode="after")
@@ -198,7 +190,7 @@ class NeighborhoodFeatureProperties(BaseModel):
     id: str
     name: str
     population: int
-    lens_flags: LensFlags
+    lens_flags: dict[str, bool]
     pct_at_defaults: float
 
     @field_validator("pct_at_defaults", mode="after")

@@ -21,7 +21,6 @@ from muni_walk_access.emit.schemas import (
     GridSchema,
     HexCell,
     HexGridSchema,
-    LensFlags,
     NeighborhoodGrid,
 )
 
@@ -49,22 +48,22 @@ def _make_neighborhoods() -> list[NeighborhoodGrid]:
             id="castro",
             name="Castro",
             population=10_000,
-            lens_flags=LensFlags(
-                analysis_neighborhoods=True,
-                ej_communities=False,
-                equity_strategy=False,
-            ),
+            lens_flags={
+                "analysis_neighborhoods": True,
+                "ej_communities": False,
+                "equity_strategy": False,
+            },
             pct_within=grid,
         ),
         NeighborhoodGrid(
             id="mission",
             name="Mission",
             population=20_000,
-            lens_flags=LensFlags(
-                analysis_neighborhoods=True,
-                ej_communities=True,
-                equity_strategy=True,
-            ),
+            lens_flags={
+                "analysis_neighborhoods": True,
+                "ej_communities": True,
+                "equity_strategy": True,
+            },
             pct_within=grid,
         ),
     ]
