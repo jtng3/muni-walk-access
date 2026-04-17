@@ -281,29 +281,45 @@ def restratify_for_window(
 
 def compute_lens_flags(
     stratified: pl.DataFrame,
+    config: Config,
 ) -> list[dict[str, Any]]:
     """Compute per-neighbourhood equity-lens flags.
 
     Returns a list of dicts sorted by ``neighborhood_id`` with keys:
     ``neighborhood_id``, ``neighborhood_name``, ``lens_flags`` (dict),
-    ``lens_flag_count`` (int 0-3).
+    ``lens_flag_count`` (int 0 to len(config.lenses)).
+
+    Story 5.3 T6: iterates ``config.lenses`` generically. Each lens with
+    a ``source_column`` contributes an aggregated ``.any()`` over that
+    column; lenses without ``source_column`` (e.g. the name-providing
+    ``analysis_neighborhoods`` lens) get a constant ``True`` flag —
+    addresses outside all boundaries are filtered out upstream so every
+    remaining row is inside the name lens.
     """
     if len(stratified) == 0:
         return []
 
+    # Internal alias pattern matches compute_grid: `_lens_<lens.id>`.
+    lens_agg_exprs: list[pl.Expr] = [
+        pl.col(lens.source_column).any().alias(f"_lens_{lens.id}")
+        for lens in config.lenses
+        if lens.source_column is not None
+    ]
+
     grouped = stratified.group_by("neighborhood_id").agg(
         pl.first("neighborhood_name"),
-        pl.col("ej_community").any().alias("ej_communities"),
-        pl.col("equity_strategy").any().alias("equity_strategy_flag"),
+        *lens_agg_exprs,
     )
 
     results: list[dict[str, Any]] = []
     for row in grouped.iter_rows(named=True):
-        flags = {
-            "analysis_neighborhoods": True,
-            "ej_communities": bool(row["ej_communities"]),
-            "equity_strategy": bool(row["equity_strategy_flag"]),
-        }
+        # Dict keys are lens.id in config-declared order (byte-identical gate).
+        flags: dict[str, bool] = {}
+        for lens in config.lenses:
+            if lens.source_column is None:
+                flags[lens.id] = True
+            else:
+                flags[lens.id] = bool(row[f"_lens_{lens.id}"])
         results.append(
             {
                 "neighborhood_id": row["neighborhood_id"],

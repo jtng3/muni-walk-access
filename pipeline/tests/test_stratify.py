@@ -290,6 +290,7 @@ class TestComputeLensFlags:
 
     def test_mixed_membership_flags(self) -> None:
         """Neighbourhood with mixed EJ/equity membership gets correct flags."""
+        config = _full_config()
         stratified = pl.DataFrame(
             {
                 "neighborhood_id": ["a", "a", "b", "b"],
@@ -298,7 +299,7 @@ class TestComputeLensFlags:
                 "equity_strategy": [True, True, False, False],
             }
         )
-        flags = compute_lens_flags(stratified)
+        flags = compute_lens_flags(stratified, config)
 
         assert len(flags) == 2
         # Sorted by ID: a first, b second
@@ -316,6 +317,7 @@ class TestComputeLensFlags:
 
     def test_empty_input(self) -> None:
         """Empty stratified DataFrame returns empty list."""
+        config = _full_config()
         stratified = pl.DataFrame(
             {
                 "neighborhood_id": [],
@@ -330,7 +332,7 @@ class TestComputeLensFlags:
                 "equity_strategy": pl.Boolean,
             },
         )
-        assert compute_lens_flags(stratified) == []
+        assert compute_lens_flags(stratified, config) == []
 
 
 # ---------------------------------------------------------------------------

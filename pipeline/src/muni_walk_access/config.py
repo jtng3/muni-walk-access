@@ -188,6 +188,15 @@ class LensConfig(BaseModel):
     filter_value: str | int | float | list[str] | None = None
     score_field: str | None = None
     score_threshold: float | None = None
+    # Story 5.3 T6: column name on the stratified DataFrame produced by
+    # `aggregate_to_lenses` that carries this lens's per-address boolean
+    # flag. `None` means the lens has no per-address boolean (e.g. the
+    # name-providing lens `analysis_neighborhoods` — membership is
+    # implicit in `neighborhood_name` not-null and the lens flag is
+    # always True post-filter). Consumed by `compute_grid` and
+    # `compute_lens_flags` to iterate `config.lenses` generically
+    # instead of hardcoding SF lens IDs.
+    source_column: str | None = None
 
     @model_validator(mode="after")
     def filter_field_and_op_must_pair(self) -> LensConfig:

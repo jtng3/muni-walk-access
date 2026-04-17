@@ -37,12 +37,16 @@ lenses:
   - id: ej_communities
     datasf_id: y6ci-vpnb
     label: "Environmental Justice Communities"
-    # score_field/score_threshold consumed by the generic filter engine in T5
-    # (Story 5.3). Until then, the hardcoded threshold in stratify/lens.py is
-    # what actually drives the filter; these fields document the intended config.
+    # score_field/score_threshold drive the generic filter engine (Story 5.3 T5).
     score_field: score
     score_threshold: 21
-  - { id: equity_strategy,        datasf_id: my8t-jqzp, label: "SFMTA Equity Strategy Neighborhoods" }
+    # source_column: DataFrame column on the stratified output that grid.py
+    # and compute_lens_flags aggregate via .any() (Story 5.3 T6).
+    source_column: ej_community
+  - id: equity_strategy
+    datasf_id: my8t-jqzp
+    label: "SFMTA Equity Strategy Neighborhoods"
+    source_column: equity_strategy
 
 validation:
   ground_truth_file: "tests/fixtures/ground_truth_addresses.yaml"

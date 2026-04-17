@@ -99,12 +99,23 @@ def compute_grid(
         pl.col(c).fill_null(value=False).cast(pl.Float64).mean().round(4).alias(c)
         for c in names
     ]
+
+    # Story 5.3 T6: lens aggregation loop replaces the SF-specific
+    # `pl.col("ej_community").any()` / `pl.col("equity_strategy").any()`
+    # hardcodes. Each lens with a `source_column` contributes one agg
+    # expr aliased `_lens_<lens.id>` — internal only (not emitted to
+    # JSON output), so renames here are byte-identical-neutral.
+    lens_agg_exprs: list[pl.Expr] = [
+        pl.col(lens.source_column).any().alias(f"_lens_{lens.id}")
+        for lens in config.lenses
+        if lens.source_column is not None
+    ]
+
     grouped = (
         df.group_by("neighborhood_id")
         .agg(
             pl.first("neighborhood_name").alias("neighborhood_name"),
-            pl.col("ej_community").any().alias("_ej"),
-            pl.col("equity_strategy").any().alias("_eq"),
+            *lens_agg_exprs,
             pl.len().alias("_population"),
             *mean_exprs,
         )
@@ -116,18 +127,27 @@ def compute_grid(
         pct_within = [
             [row[f"_m{fi}_{wi}"] for wi in range(n_walk)] for fi in range(n_freq)
         ]
-        # Lens keys are inserted in config-declared order so JSON emit order
-        # matches the pre-refactor LensFlags field order (byte-identical gate).
+        # Story 5.3 T6: lens_flags dict is built by iterating `config.lenses`
+        # in declared order (config.yaml declares analysis_neighborhoods,
+        # ej_communities, equity_strategy in that order — matches pre-5.3
+        # JSON emit order, byte-identical gate). Dict KEYS are `lens.id`
+        # verbatim; any rename would break JSON byte-identity.
+        lens_flags: dict[str, bool] = {}
+        for lens in config.lenses:
+            if lens.source_column is None:
+                # No per-address flag column → "name-providing" lens.
+                # `aggregate_to_lenses` filtered out addresses outside all
+                # boundaries, so every remaining row IS inside this lens.
+                lens_flags[lens.id] = True
+            else:
+                lens_flags[lens.id] = bool(row[f"_lens_{lens.id}"])
+
         neighborhoods.append(
             NeighborhoodGrid(
                 id=row["neighborhood_id"],
                 name=row["neighborhood_name"],
                 population=row["_population"],
-                lens_flags={
-                    "analysis_neighborhoods": True,
-                    "ej_communities": bool(row["_ej"]),
-                    "equity_strategy": bool(row["_eq"]),
-                },
+                lens_flags=lens_flags,
                 pct_within=pct_within,
             )
         )

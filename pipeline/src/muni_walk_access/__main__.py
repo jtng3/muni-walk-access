@@ -90,7 +90,7 @@ def _run_stratify(
     stratified = aggregate_to_lenses(
         result, stops_df, config, time_window=time_window, ctx=ctx
     )
-    lens_flags_data = compute_lens_flags(stratified)
+    lens_flags_data = compute_lens_flags(stratified, config)
     t_lens = time.perf_counter() - t0
     logger.info("Stage stratify_lens%s: %.1fs", tw_label, t_lens)
 
