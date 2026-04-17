@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -169,11 +169,50 @@ class ResidentialFilterConfig(BaseModel):
 
 
 class LensConfig(BaseModel):
-    """An equity lens geographic dataset."""
+    """An equity lens geographic dataset.
+
+    Optional per-city filter metadata (Story 5.3) lets a generic filter
+    engine drive lens filtering from config alone instead of code branching
+    on `lens.id`. SF's existing `config.yaml` continues to load — every
+    new field defaults to a safe pass-through value.
+    """
 
     id: str
     datasf_id: str
     label: str
+
+    source_kind: Literal["datasf", "arcgis_hub", "generic_url"] = "datasf"
+    name_field: str = "nhood"
+    filter_field: str | None = None
+    filter_op: Literal["eq", "ne", "gte", "lte", "in"] | None = None
+    filter_value: str | int | float | list[str] | None = None
+    score_field: str | None = None
+    score_threshold: float | None = None
+
+    @model_validator(mode="after")
+    def filter_field_and_op_must_pair(self) -> LensConfig:
+        """Reject half-configured filters (field without op, or op without field).
+
+        Also rejects orphan ``filter_value`` (set without field+op), since a
+        value with no column to apply it to is silently inert and confusing.
+        """
+        if (self.filter_field is None) != (self.filter_op is None):
+            raise ValueError(
+                "filter_field and filter_op must be set together "
+                f"(got field={self.filter_field!r}, op={self.filter_op!r})"
+            )
+        if self.filter_value is not None and self.filter_field is None:
+            raise ValueError(
+                "filter_value requires filter_field + filter_op to be set "
+                f"(got value={self.filter_value!r}, field=None)"
+            )
+        if (self.score_field is None) != (self.score_threshold is None):
+            raise ValueError(
+                "score_field and score_threshold must be set together "
+                f"(got field={self.score_field!r}, "
+                f"threshold={self.score_threshold!r})"
+            )
+        return self
 
 
 class ValidationConfig(BaseModel):

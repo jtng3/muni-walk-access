@@ -24,6 +24,7 @@ from muni_walk_access.ingest.datasf import (
     fetch_tabular,
 )
 from muni_walk_access.ingest.gtfs import fetch_gtfs
+from muni_walk_access.run_context import RunContext
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sample_gtfs_minimal"
 
@@ -620,6 +621,7 @@ class TestResidentialFilter:
             dataset_id: str,
             config: IngestConfig,
             client: httpx.Client | None = None,
+            ctx: RunContext | None = None,
         ) -> pl.DataFrame:
             if call_log is not None:
                 call_log.append(dataset_id)
@@ -711,6 +713,7 @@ class TestResidentialFilter:
             dataset_id: str,
             config: IngestConfig,
             client: httpx.Client | None = None,
+            ctx: RunContext | None = None,
         ) -> pl.DataFrame:
             if dataset_id == datasf_mod._EAS_DATASET_ID:
                 return self._eas_df()

@@ -11,6 +11,7 @@ import json
 import logging
 import zipfile
 from datetime import date, timedelta
+from typing import TYPE_CHECKING
 
 import httpx
 import polars as pl
@@ -19,6 +20,9 @@ from muni_walk_access.config import Config, TimeWindow
 from muni_walk_access.exceptions import IngestError
 from muni_walk_access.ingest.cache import CacheManager
 from muni_walk_access.ingest.datasf import set_upstream_fallback
+
+if TYPE_CHECKING:
+    from muni_walk_access.run_context import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -560,6 +564,7 @@ def _compute_stop_frequencies_v2(
 def fetch_gtfs(
     config: Config,
     client: httpx.Client | None = None,
+    ctx: RunContext | None = None,
 ) -> tuple[pl.DataFrame, str, str]:
     """Download GTFS zip, parse AM-peak stop frequencies.
 
@@ -635,7 +640,7 @@ def fetch_gtfs(
             if cached_zip is not None and cached_zip.suffix == ".zip":
                 if not use_cache:
                     logger.warning("GTFS fetch failed; using cached zip %s", cached_zip)
-                    set_upstream_fallback()
+                    set_upstream_fallback(ctx)
                 zip_bytes = cached_zip.read_bytes()
             else:
                 raise IngestError(
@@ -687,6 +692,7 @@ def fetch_gtfs(
 def fetch_gtfs_v2(
     config: Config,
     client: httpx.Client | None = None,
+    ctx: RunContext | None = None,
 ) -> tuple[pl.DataFrame, pl.DataFrame, str, str]:
     """Download GTFS zip, parse per-route multi-window frequencies.
 
@@ -762,7 +768,7 @@ def fetch_gtfs_v2(
             if cached_zip is not None and cached_zip.suffix == ".zip":
                 if not use_cache:
                     logger.warning("GTFS fetch failed; using cached zip %s", cached_zip)
-                    set_upstream_fallback()
+                    set_upstream_fallback(ctx)
                 zip_bytes = cached_zip.read_bytes()
             else:
                 raise IngestError(

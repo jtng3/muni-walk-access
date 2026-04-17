@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import polars as pl
@@ -13,6 +13,9 @@ import polars as pl
 from muni_walk_access.config import Config, IngestConfig
 from muni_walk_access.exceptions import IngestError
 from muni_walk_access.ingest.cache import CacheManager
+
+if TYPE_CHECKING:
+    from muni_walk_access.run_context import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +40,17 @@ def was_fallback_used() -> bool:
     return _upstream_fallback
 
 
-def set_upstream_fallback() -> None:
-    """Mark that an upstream fallback was used (callable from other ingest modules)."""
+def set_upstream_fallback(ctx: RunContext | None = None) -> None:
+    """Mark that an upstream fallback was used (callable from other ingest modules).
+
+    Story 5.3 dual-write: when ``ctx`` is supplied, mirrors the flag onto
+    ``ctx.upstream_fallback``. The legacy module global remains the source
+    of truth until T7 deletes it; until then both must stay in sync.
+    """
     global _upstream_fallback
     _upstream_fallback = True
+    if ctx is not None:
+        ctx.upstream_fallback = True
 
 
 def get_datasf_timestamps() -> dict[str, str]:
@@ -79,32 +89,39 @@ def fetch_datasf_metadata(
     return result
 
 
-def _record_timestamp(dataset_id: str, path: Path) -> None:
-    """Extract and store the date suffix from a cache file path."""
+def _record_timestamp(
+    dataset_id: str, path: Path, ctx: RunContext | None = None
+) -> None:
+    """Extract and store the date suffix from a cache file path.
+
+    Story 5.3 dual-write: when ``ctx`` is supplied, mirrors the timestamp
+    onto ``ctx.datasf_timestamps``. T7 collapses to ctx-only.
+    """
     stem = path.stem  # e.g. "i28k-bkz6-20260412"
     parts = stem.rsplit("-", 1)
     if len(parts) == 2:
         _datasf_timestamps[dataset_id] = parts[1]
+        if ctx is not None:
+            ctx.datasf_timestamps[dataset_id] = parts[1]
 
 
 def fetch_tabular(
     dataset_id: str,
     config: IngestConfig,
     client: httpx.Client | None = None,
+    ctx: RunContext | None = None,
 ) -> pl.DataFrame:
     """Fetch a tabular SODA dataset as a Polars DataFrame.
 
     Uses pagination ($limit/$offset) to bypass SODA's 1 000-row default cap.
     Caches result as Parquet. On HTTP failure, returns cached data if available
-    and sets the module-level upstream_fallback flag. Raises IngestError if
-    no cache exists and the upstream is unreachable.
+    and sets the upstream-fallback flag (dual-written to ``ctx`` when supplied).
+    Raises IngestError if no cache exists and the upstream is unreachable.
     """
-    global _upstream_fallback
-
     cache = CacheManager(root=config.cache_dir, ttl_days=config.cache_ttl_days)
     fresh = cache.get(CACHE_SUBDIR_TABULAR, dataset_id)
     if fresh is not None:
-        _record_timestamp(dataset_id, fresh)
+        _record_timestamp(dataset_id, fresh, ctx)
         return pl.read_parquet(fresh)
 
     # Need to fetch
@@ -143,7 +160,7 @@ def fetch_tabular(
         buf = io.BytesIO()
         df.write_parquet(buf)
         path = cache.put(CACHE_SUBDIR_TABULAR, dataset_id, buf.getvalue(), "parquet")
-        _record_timestamp(dataset_id, path)
+        _record_timestamp(dataset_id, path, ctx)
         return df
 
     except (httpx.HTTPError, httpx.TransportError) as exc:
@@ -155,8 +172,8 @@ def fetch_tabular(
                 exc,
                 stale,
             )
-            _upstream_fallback = True
-            _record_timestamp(dataset_id, stale)
+            set_upstream_fallback(ctx)
+            _record_timestamp(dataset_id, stale, ctx)
             return pl.read_parquet(stale)
         raise IngestError(
             dataset_id,
@@ -172,18 +189,18 @@ def fetch_geospatial(
     dataset_id: str,
     config: IngestConfig,
     client: httpx.Client | None = None,
+    ctx: RunContext | None = None,
 ) -> Path:
     """Fetch a geospatial SODA dataset as a cached GeoJSON file.
 
     Returns the Path to the cached .geojson file. On failure uses stale cache
-    or raises IngestError.
+    (dual-writing the upstream-fallback flag to ``ctx`` when supplied) or
+    raises IngestError.
     """
-    global _upstream_fallback
-
     cache = CacheManager(root=config.cache_dir, ttl_days=config.cache_ttl_days)
     fresh = cache.get(CACHE_SUBDIR_GEO, dataset_id)
     if fresh is not None:
-        _record_timestamp(dataset_id, fresh)
+        _record_timestamp(dataset_id, fresh, ctx)
         return fresh
 
     own_client = client is None
@@ -194,7 +211,7 @@ def fetch_geospatial(
         resp = _client.get(url)
         resp.raise_for_status()
         path = cache.put(CACHE_SUBDIR_GEO, dataset_id, resp.content, "geojson")
-        _record_timestamp(dataset_id, path)
+        _record_timestamp(dataset_id, path, ctx)
         return path
 
     except (httpx.HTTPError, httpx.TransportError) as exc:
@@ -206,8 +223,8 @@ def fetch_geospatial(
                 exc,
                 stale,
             )
-            _upstream_fallback = True
-            _record_timestamp(dataset_id, stale)
+            set_upstream_fallback(ctx)
+            _record_timestamp(dataset_id, stale, ctx)
             return stale
         raise IngestError(
             dataset_id,
@@ -222,6 +239,7 @@ def fetch_geospatial(
 def fetch_residential_addresses(
     config: Config,
     client: httpx.Client | None = None,
+    ctx: RunContext | None = None,
 ) -> pl.DataFrame:
     """Fetch EAS base addresses filtered to residential parcels only.
 
@@ -237,6 +255,8 @@ def fetch_residential_addresses(
         config: Root pipeline configuration; needs ``.ingest`` and
             ``.residential_filter``.
         client: Optional httpx.Client injected for testability; created if None.
+        ctx: Optional RunContext for dual-writing fallback flag and dataset
+            timestamps onto the run-scoped state. Story 5.3 transition aid.
 
     Returns:
         DataFrame of EAS addresses annotated with ``use_code``, filtered to
@@ -262,8 +282,8 @@ def fetch_residential_addresses(
     else:
         logger.info("Using configured parcel dataset: %s", parcel_id)
 
-    eas = fetch_tabular(_EAS_DATASET_ID, config.ingest, client=client)
-    parcels = fetch_tabular(parcel_id, config.ingest, client=client)
+    eas = fetch_tabular(_EAS_DATASET_ID, config.ingest, client=client, ctx=ctx)
+    parcels = fetch_tabular(parcel_id, config.ingest, client=client, ctx=ctx)
 
     # Assessor historical data spans multiple years — keep only the most recent roll.
     # String max works correctly for 4-digit year values ("2024" > "2023").

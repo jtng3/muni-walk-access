@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import osmnx
 import pandana
@@ -11,13 +12,18 @@ from muni_walk_access.config import Config
 from muni_walk_access.ingest.cache import CacheManager
 from muni_walk_access.ingest.osm import fetch_osm_graph
 
+if TYPE_CHECKING:
+    from muni_walk_access.run_context import RunContext
+
 logger = logging.getLogger(__name__)
 
 _PANDANA_SUBDIR = "pandana"
 _PANDANA_EXT: tuple[str, ...] = ("h5",)
 
 
-def build_network(config: Config) -> tuple[pandana.Network, str]:
+def build_network(
+    config: Config, ctx: RunContext | None = None
+) -> tuple[pandana.Network, str]:
     """Build the SF pedestrian pandana Network, cache as HDF5, return (net, date).
 
     The pandana cache key embeds the OSM extract date so stale-fallback graphs
@@ -30,7 +36,7 @@ def build_network(config: Config) -> tuple[pandana.Network, str]:
     )
 
     # Fetch (or load from cache) the raw OSMnx graph.
-    osm_graph, osm_date = fetch_osm_graph(config, cache=cache)
+    osm_graph, osm_date = fetch_osm_graph(config, cache=cache, ctx=ctx)
 
     pandana_dataset_id = f"pandana-contracted-{osm_date}"
 

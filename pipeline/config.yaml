@@ -34,7 +34,14 @@ residential_filter:
 
 lenses:
   - { id: analysis_neighborhoods, datasf_id: j2bu-swwd, label: "Analysis Neighborhoods" }
-  - { id: ej_communities,         datasf_id: y6ci-vpnb, label: "Environmental Justice Communities" }
+  - id: ej_communities
+    datasf_id: y6ci-vpnb
+    label: "Environmental Justice Communities"
+    # score_field/score_threshold consumed by the generic filter engine in T5
+    # (Story 5.3). Until then, the hardcoded threshold in stratify/lens.py is
+    # what actually drives the filter; these fields document the intended config.
+    score_field: score
+    score_threshold: 21
   - { id: equity_strategy,        datasf_id: my8t-jqzp, label: "SFMTA Equity Strategy Neighborhoods" }
 
 validation:

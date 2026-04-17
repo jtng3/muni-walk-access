@@ -36,6 +36,7 @@ from muni_walk_access.ingest.datasf import (
 from muni_walk_access.ingest.gtfs import fetch_gtfs, fetch_gtfs_v2
 from muni_walk_access.network.build import build_network
 from muni_walk_access.route.nearest_stop import route_nearest_stops
+from muni_walk_access.run_context import RunContext
 from muni_walk_access.stratify.grid import (
     assign_hex_cells,
     compute_grid,
@@ -294,16 +295,22 @@ def _run_pipeline(
     run_id = datetime.now(timezone.utc).isoformat()
     config_hash, git_sha, git_tag = _get_git_provenance(config_path)
 
+    cache = CacheManager(
+        root=config.ingest.cache_dir, ttl_days=config.ingest.cache_ttl_days
+    )
+    ctx = RunContext.from_config(run_id=run_id, config=config, cache=cache)
+    logger.info("RunContext built (city_id=%s)", ctx.city_id)
+
     tracemalloc.start()
     t_start = time.perf_counter()
 
     t0 = time.perf_counter()
-    net, osm_date = build_network(config)
+    net, osm_date = build_network(config, ctx=ctx)
     t_network = time.perf_counter() - t0
     logger.info("Stage network_build: %.1fs", t_network)
 
     t0 = time.perf_counter()
-    addresses = fetch_residential_addresses(config)
+    addresses = fetch_residential_addresses(config, ctx=ctx)
     t_addresses = time.perf_counter() - t0
     logger.info("Stage address_fetch: %.1fs", t_addresses)
 
@@ -313,7 +320,9 @@ def _run_pipeline(
     t0 = time.perf_counter()
     gtfs_feed_date = ""
     if use_v2:
-        detail_df, summary_df, gtfs_sha256, gtfs_feed_date = fetch_gtfs_v2(config)
+        detail_df, summary_df, gtfs_sha256, gtfs_feed_date = fetch_gtfs_v2(
+            config, ctx=ctx
+        )
         # For routing, we need a single stops DataFrame with coordinates.
         # Use the summary filtered to am_peak (or first window) for routing —
         # routing only needs stop_id, stop_lat, stop_lon, trips_per_hour_peak.
@@ -325,7 +334,7 @@ def _run_pipeline(
         )
         stop_count = routing_stops["stop_id"].n_unique()
     else:
-        routing_stops, gtfs_sha256, gtfs_feed_date = fetch_gtfs(config)
+        routing_stops, gtfs_sha256, gtfs_feed_date = fetch_gtfs(config, ctx=ctx)
         stop_count = len(routing_stops)
     t_gtfs = time.perf_counter() - t0
     logger.info("Stage gtfs_fetch: %.1fs", t_gtfs)
