@@ -248,9 +248,16 @@ class AddressSourceConfig(BaseModel):
 
     Story 5.3: generalizes the previously hardcoded DataSF + EAS assumption
     so Philly (5.4) can ship an OPA Carto adapter without core-module edits.
+
+    ``kind`` is typed ``str`` rather than ``Literal["datasf", ...]`` so new
+    adapters can register themselves into the factory (via
+    :func:`ingest.sources.get_address_source`) without touching this file.
+    The runtime check happens at the factory: an unknown kind raises
+    ``KeyError`` with the known-kinds set, which surfaces at pipeline
+    startup — no code path silently falls back.
     """
 
-    kind: Literal["datasf"] = "datasf"
+    kind: str = "datasf"
 
 
 class Config(BaseModel):

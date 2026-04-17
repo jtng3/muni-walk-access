@@ -54,9 +54,12 @@ class RunContext:
 
     run_id: str
     config: Config
-    # ``cache`` is held on the ctx for future wire-up; in T2 the fetch
-    # functions still construct their own CacheManager. T3 starts reading
-    # from ``ctx.cache``; until then this field is informational.
+    # ``cache`` is held on the ctx so adapters and the pipeline orchestrator
+    # can share one ``CacheManager`` instance. Story 5.3 still has the fetch
+    # helpers constructing their own ``CacheManager`` from ``config.ingest``
+    # (behavior-preserving); the wire-through to ``ctx.cache`` lands in T10
+    # alongside per-city cache namespacing, where a single configured cache
+    # root becomes load-bearing.
     cache: CacheManager
     city_id: str
     http_client: httpx.Client | None = None
