@@ -699,3 +699,183 @@ def _make_stratified_multi(
             "trips_per_hour_peak": [trips_per_hour_peak] * n,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# T5 filter engine + BoundarySource tests (Story 5.3 / AC-3, AC-11)
+# ---------------------------------------------------------------------------
+
+
+class TestApplyLensFilter:
+    """AC-3: generic lens-boundary filter engine replaces the SF `lens.id` branch."""
+
+    @staticmethod
+    def _lens(**overrides: Any):
+        from muni_walk_access.config import LensConfig
+
+        base = {"id": "test_lens", "datasf_id": "abcd-1234", "label": "Test Lens"}
+        base.update(overrides)
+        return LensConfig(**base)
+
+    @staticmethod
+    def _gdf(**cols: Any) -> gpd.GeoDataFrame:
+        """Build a small polygon-free gdf (filter engine only touches attributes)."""
+        from shapely.geometry import Point
+
+        n = len(next(iter(cols.values())))
+        return gpd.GeoDataFrame(
+            cols | {"geometry": [Point(0, i) for i in range(n)]},
+            crs="EPSG:4326",
+        )
+
+    def test_no_filter_is_passthrough(self) -> None:
+        """Unconfigured lens returns gdf unchanged."""
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        lens = self._lens()
+        gdf = self._gdf(value=[1, 2, 3])
+        assert len(_apply_lens_filter(gdf, lens)) == 3
+
+    def test_score_threshold_keeps_ge_threshold(self) -> None:
+        """SF EJ regression: score >= 21 retained, lower scores dropped."""
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        lens = self._lens(score_field="score", score_threshold=21)
+        gdf = self._gdf(score=["10", "20", "21", "25", "30"])
+        out = _apply_lens_filter(gdf, lens)
+        assert sorted(out["score"].tolist()) == [21.0, 25.0, 30.0]
+
+    def test_score_threshold_null_rows_excluded(self) -> None:
+        """Non-numeric score coerces to NaN, which fails the threshold → dropped."""
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        lens = self._lens(score_field="score", score_threshold=21)
+        gdf = self._gdf(score=["25", "bogus", "30"])
+        out = _apply_lens_filter(gdf, lens)
+        assert sorted(out["score"].tolist()) == [25.0, 30.0]
+
+    def test_score_threshold_missing_column_warns_and_passes(self) -> None:
+        """Missing score column → warn + pass-through (matches old EJ fallback)."""
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        lens = self._lens(score_field="score", score_threshold=21)
+        gdf = self._gdf(other_col=[1, 2, 3])
+        assert len(_apply_lens_filter(gdf, lens)) == 3
+
+    def test_filter_op_eq(self) -> None:
+        """filter_op='eq' keeps rows where field equals value."""
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        lens = self._lens(filter_field="zone", filter_op="eq", filter_value="A")
+        gdf = self._gdf(zone=["A", "B", "A", "C"])
+        out = _apply_lens_filter(gdf, lens)
+        assert out["zone"].tolist() == ["A", "A"]
+
+    def test_filter_op_ne(self) -> None:
+        """filter_op='ne' keeps rows where field does not equal value."""
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        lens = self._lens(filter_field="zone", filter_op="ne", filter_value="A")
+        gdf = self._gdf(zone=["A", "B", "A", "C"])
+        out = _apply_lens_filter(gdf, lens)
+        assert out["zone"].tolist() == ["B", "C"]
+
+    def test_filter_op_gte_and_lte(self) -> None:
+        """filter_op='gte' and 'lte' produce expected half-open subsets."""
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        lens_gte = self._lens(filter_field="rank", filter_op="gte", filter_value=3)
+        lens_lte = self._lens(filter_field="rank", filter_op="lte", filter_value=3)
+        gdf = self._gdf(rank=[1, 2, 3, 4, 5])
+        assert sorted(_apply_lens_filter(gdf, lens_gte)["rank"].tolist()) == [3, 4, 5]
+        assert sorted(_apply_lens_filter(gdf, lens_lte)["rank"].tolist()) == [1, 2, 3]
+
+    def test_filter_op_in(self) -> None:
+        """filter_op='in' keeps rows whose field matches any list member."""
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        lens = self._lens(filter_field="zone", filter_op="in", filter_value=["A", "C"])
+        gdf = self._gdf(zone=["A", "B", "C", "D"])
+        out = _apply_lens_filter(gdf, lens)
+        assert sorted(out["zone"].tolist()) == ["A", "C"]
+
+    def test_filter_op_in_requires_list(self) -> None:
+        """filter_op='in' with scalar filter_value raises with a clear message."""
+        from muni_walk_access.config import LensConfig
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        # LensConfig validator allows scalar filter_value — guard raises at apply time.
+        lens = LensConfig.model_construct(
+            id="test_lens",
+            datasf_id="x",
+            label="X",
+            source_kind="datasf",
+            name_field="nhood",
+            filter_field="zone",
+            filter_op="in",
+            filter_value="A",  # scalar instead of list
+            score_field=None,
+            score_threshold=None,
+        )
+        gdf = self._gdf(zone=["A", "B"])
+        with pytest.raises(ValueError, match="requires filter_value to be a list"):
+            _apply_lens_filter(gdf, lens)
+
+    def test_score_and_filter_compose(self) -> None:
+        """Score filter runs first, then attribute filter."""
+        from muni_walk_access.ingest.boundaries import _apply_lens_filter
+
+        lens = self._lens(
+            score_field="score",
+            score_threshold=10,
+            filter_field="zone",
+            filter_op="eq",
+            filter_value="A",
+        )
+        gdf = self._gdf(
+            score=["5", "15", "20", "25"],
+            zone=["A", "A", "B", "A"],
+        )
+        out = _apply_lens_filter(gdf, lens)
+        # score >= 10 leaves rows 1,2,3 (score 15,20,25); then zone==A leaves 1,3.
+        assert sorted(out["score"].tolist()) == [15.0, 25.0]
+
+
+class TestBoundarySourceDispatch:
+    """AC-1: BOUNDARY_SOURCES registry + NotImplementedError stubs."""
+
+    def test_datasf_registered(self) -> None:
+        """DataSFBoundarySource is registered under the 'datasf' source_kind."""
+        # Triggers registration of DataSFBoundarySource at module import.
+        import muni_walk_access.ingest.sources.datasf  # noqa: F401
+        from muni_walk_access.ingest.boundaries import get_boundary_source
+
+        cls = get_boundary_source("datasf")
+        assert cls.__name__ == "DataSFBoundarySource"
+
+    def test_arcgis_hub_stub_raises(self) -> None:
+        """ArcGISHubBoundarySource raises NotImplementedError pointing at 5-4."""
+        from muni_walk_access.config import LensConfig
+        from muni_walk_access.ingest.boundaries import get_boundary_source
+
+        lens = LensConfig(id="pd", datasf_id="x", label="L", source_kind="arcgis_hub")
+        src = get_boundary_source("arcgis_hub")()
+        with pytest.raises(NotImplementedError, match="Story 5-4"):
+            src.fetch(lens)
+
+    def test_generic_url_stub_raises(self) -> None:
+        """GenericURLBoundarySource raises NotImplementedError pointing at 5-4."""
+        from muni_walk_access.config import LensConfig
+        from muni_walk_access.ingest.boundaries import get_boundary_source
+
+        lens = LensConfig(id="ejx", datasf_id="x", label="L", source_kind="generic_url")
+        src = get_boundary_source("generic_url")()
+        with pytest.raises(NotImplementedError, match="Story 5-4"):
+            src.fetch(lens)
+
+    def test_unknown_kind_raises_keyerror(self) -> None:
+        """Unregistered source_kind raises KeyError naming the missing kind."""
+        from muni_walk_access.ingest.boundaries import get_boundary_source
+
+        with pytest.raises(KeyError, match="No BoundarySource"):
+            get_boundary_source("does_not_exist")

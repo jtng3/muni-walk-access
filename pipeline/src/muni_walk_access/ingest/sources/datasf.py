@@ -19,16 +19,19 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import geopandas as gpd
 import httpx
 import polars as pl
 
 from muni_walk_access.config import Config, IngestConfig
 from muni_walk_access.exceptions import IngestError
+from muni_walk_access.ingest.boundaries import BOUNDARY_SOURCES
 from muni_walk_access.ingest.cache import CacheManager
 from muni_walk_access.ingest.contracts import validate_wgs84
 from muni_walk_access.ingest.sources import ADDRESS_SOURCES
 
 if TYPE_CHECKING:
+    from muni_walk_access.config import LensConfig
     from muni_walk_access.run_context import RunContext
 
 logger = logging.getLogger(__name__)
@@ -226,12 +229,19 @@ def fetch_geospatial(
     config: IngestConfig,
     client: httpx.Client | None = None,
     ctx: RunContext | None = None,
+    *,
+    limit: int | None = None,
 ) -> Path:
     """Fetch a geospatial SODA dataset as a cached GeoJSON file.
 
     Returns the Path to the cached .geojson file. On failure uses stale cache
     (dual-writing the upstream-fallback flag to ``ctx`` when supplied) or
     raises IngestError.
+
+    ``limit`` overrides SODA's default 1 000-row cap. Lens boundary
+    datasets (e.g. EJ Communities at 2 700+ tracts) pass ``limit=50_000``
+    so the full dataset is cached; other callers leave it ``None`` to
+    accept SODA defaults.
     """
     cache = CacheManager(root=config.cache_dir, ttl_days=config.cache_ttl_days)
     fresh = cache.get(CACHE_SUBDIR_GEO, dataset_id)
@@ -244,7 +254,8 @@ def fetch_geospatial(
 
     try:
         url = f"{SODA_BASE}/{dataset_id}.geojson"
-        resp = _client.get(url)
+        params: dict[str, Any] = {"$limit": limit} if limit is not None else {}
+        resp = _client.get(url, params=params)
         resp.raise_for_status()
         path = cache.put(CACHE_SUBDIR_GEO, dataset_id, resp.content, "geojson")
         _record_timestamp(dataset_id, path, ctx)
@@ -279,8 +290,8 @@ def fetch_residential_addresses(
 ) -> pl.DataFrame:
     """Fetch EAS base addresses filtered to residential parcels only.
 
-    Joins EAS addresses (3mea-di5p) against a parcel dataset on ``parcel_number``
-    and filters to rows whose ``use_code`` matches
+    Joins EAS addresses (``ramy-di5m``) against a parcel dataset on
+    ``parcel_number`` and filters to rows whose ``use_code`` matches
     ``config.residential_filter.use_codes_residential``.
 
     When ``parcel_dataset_id`` is the ``TBD_FROM_LUKE`` placeholder, falls back to
@@ -383,3 +394,53 @@ class DataSFAddressSource:
 
 
 ADDRESS_SOURCES["datasf"] = DataSFAddressSource
+
+
+# ---------------------------------------------------------------------------
+# DataSFBoundarySource — Story 5.3 T5a
+# ---------------------------------------------------------------------------
+
+# Row limit for SODA lens-boundary fetches. SF's EJ Communities dataset has
+# 2 700+ tracts; SODA's default 1 000-row cap would silently truncate it.
+_LENS_BOUNDARY_ROW_LIMIT = 50_000
+
+
+class DataSFBoundarySource:
+    """BoundarySource implementation for SF lens boundaries on DataSF.
+
+    Wraps :func:`fetch_geospatial` with a 50 000-row ``$limit`` override
+    (SODA defaults to 1 000, which truncates the EJ Communities dataset).
+    Records each lens dataset's Last-Modified date into
+    ``ctx.datasf_timestamps`` via :func:`_record_timestamp` — closing the
+    AC-12 provenance gap where lens boundary timestamps were previously
+    lost (only EAS + parcel timestamps were captured).
+
+    The returned GeoDataFrame is CRS-normalized to EPSG:4326 but NOT
+    attribute-filtered — attribute filtering (e.g. SF's EJ score ≥ 21) is
+    a generic concern handled by ``_apply_lens_filter`` in
+    ``muni_walk_access.ingest.boundaries``, so every BoundarySource impl
+    shares the same filter semantics.
+    """
+
+    def fetch(
+        self, lens: LensConfig, ctx: RunContext | None = None
+    ) -> gpd.GeoDataFrame:
+        """Fetch + CRS-normalize a DataSF lens boundary."""
+        config = ctx.config if ctx is not None else None
+        if config is None:
+            raise ValueError(
+                "DataSFBoundarySource.fetch requires ctx with a bound Config"
+            )
+        path = fetch_geospatial(
+            lens.datasf_id,
+            config.ingest,
+            ctx=ctx,
+            limit=_LENS_BOUNDARY_ROW_LIMIT,
+        )
+        gdf: gpd.GeoDataFrame = gpd.read_file(path)
+        if gdf.crs is None or gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs("EPSG:4326")
+        return gdf
+
+
+BOUNDARY_SOURCES["datasf"] = DataSFBoundarySource

@@ -2,33 +2,37 @@
 
 Assigns each routed address to its Analysis Neighborhood, Environmental
 Justice Community membership, and SFMTA Equity Strategy membership via
-spatial join against DataSF boundary datasets.
+spatial join against boundary datasets loaded through the generic
+``BoundarySource`` dispatch (Story 5.3 T5).
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import geopandas as gpd
-import httpx
-import pandas as pd
 import polars as pl
 
+# Side-effect import: registers DataSFBoundarySource in BOUNDARY_SOURCES.
+# Required even though this module doesn't use the class by name.
+import muni_walk_access.ingest.sources.datasf  # noqa: F401
 from muni_walk_access.config import Config
-from muni_walk_access.exceptions import IngestError
-from muni_walk_access.ingest.cache import CacheManager
-from muni_walk_access.ingest.datasf import SODA_BASE
+from muni_walk_access.ingest.boundaries import (
+    _apply_lens_filter,
+    get_boundary_source,
+)
+
+if TYPE_CHECKING:
+    from muni_walk_access.run_context import RunContext
 
 logger = logging.getLogger(__name__)
 
 # Column in the Analysis Neighborhoods GeoJSON that holds the name.
+# TODO(Story 5.3 T8): lift into LensConfig.name_field (already exists; this
+# constant just keeps the byte-identical gate steady until the T8 sweep).
 _ANA_NAME_COL = "nhood"
-
-# EJ Communities score threshold: top 1/3 of cumulative burden (scores 21-30).
-_EJ_SCORE_THRESHOLD = 21
 
 
 def slugify_neighborhood(name: str) -> str:
@@ -62,76 +66,26 @@ def slugify_neighborhood(name: str) -> str:
     return s
 
 
-def _fetch_lens_geojson(
-    dataset_id: str,
+def _fetch_boundaries(
     config: Config,
-) -> Path:
-    """Fetch a lens boundary GeoJSON, raising the SODA row limit.
+    ctx: RunContext | None = None,
+) -> dict[str, gpd.GeoDataFrame]:
+    """Fetch + filter all lens boundary GeoDataFrames via BoundarySource dispatch.
 
-    ``fetch_geospatial`` uses the SODA default of 1 000 rows, which
-    truncates the EJ Communities dataset (2 700+ tracts).  This helper
-    requests up to 50 000 rows so the full dataset is cached.
+    For each lens in ``config.lenses``, resolves the source adapter via
+    ``lens.source_kind`` (e.g. "datasf" → :class:`DataSFBoundarySource`),
+    then applies the generic attribute-filter engine
+    (:func:`_apply_lens_filter`) using the config's filter/score rules.
+
+    The EJ Communities SF-specific ``score >= 21`` filter that used to live
+    here is now config-driven (``score_field: score`` + ``score_threshold:
+    21`` on the EJ lens in ``config.yaml``) and applied generically.
     """
-    cache = CacheManager(
-        root=config.ingest.cache_dir,
-        ttl_days=config.ingest.cache_ttl_days,
-    )
-    fresh = cache.get("datasf", dataset_id)
-    if fresh is not None:
-        return fresh
-    url = f"{SODA_BASE}/{dataset_id}.geojson?$limit=50000"
-    try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-    except (httpx.HTTPError, httpx.TransportError) as exc:
-        stale = cache.get_any("datasf", dataset_id)
-        if stale is not None:
-            logger.warning(
-                "Lens boundary fetch failed for %s (%s); returning stale cache %s",
-                dataset_id,
-                exc,
-                stale,
-            )
-            return stale
-        raise IngestError(
-            dataset_id,
-            f"HTTP error and no local cache: {exc}. "
-            "Warm the cache with network access first.",
-        ) from exc
-    path = cache.put("datasf", dataset_id, resp.content, "geojson")
-    logger.info("Lens boundary fetched: %s (%d bytes)", path, len(resp.content))
-    return path
-
-
-def _fetch_boundaries(config: Config) -> dict[str, gpd.GeoDataFrame]:
-    """Fetch all equity-lens boundary GeoDataFrames from DataSF cache."""
     boundaries: dict[str, gpd.GeoDataFrame] = {}
     for lens in config.lenses:
-        path = _fetch_lens_geojson(lens.datasf_id, config)
-        gdf: gpd.GeoDataFrame = gpd.read_file(path)
-        if gdf.crs is None or gdf.crs.to_epsg() != 4326:
-            gdf = gdf.to_crs("EPSG:4326")
-        # EJ Communities is a scoring dataset covering all tracts;
-        # filter to score >= 21 (top 1/3 = EJ designation).
-        if lens.id == "ej_communities":
-            if "score" not in gdf.columns:
-                logger.warning(
-                    "EJ Communities dataset missing 'score' column "
-                    "(columns: %s); treating ALL tracts as EJ — "
-                    "results may be incorrect",
-                    list(gdf.columns),
-                )
-            else:
-                gdf["score"] = pd.to_numeric(gdf["score"], errors="coerce")
-                before = len(gdf)
-                gdf = gdf[gdf["score"] >= _EJ_SCORE_THRESHOLD]
-                logger.info(
-                    "EJ Communities: %d/%d tracts meet score >= %d",
-                    len(gdf),
-                    before,
-                    _EJ_SCORE_THRESHOLD,
-                )
+        source = get_boundary_source(lens.source_kind)()
+        gdf = source.fetch(lens, ctx)
+        gdf = _apply_lens_filter(gdf, lens)
         boundaries[lens.id] = gdf
     return boundaries
 
@@ -156,6 +110,7 @@ def aggregate_to_lenses(
     stops_df: pl.DataFrame,
     config: Config,
     time_window: str | None = None,
+    ctx: RunContext | None = None,
 ) -> pl.DataFrame:
     """Spatially join routed addresses to equity-lens boundaries.
 
@@ -168,6 +123,9 @@ def aggregate_to_lenses(
         config: Pipeline configuration.
         time_window: If set, filter stops_df to this window before joining.
             Required when stops_df has multiple rows per stop_id.
+        ctx: Optional run context threaded to :class:`BoundarySource`
+            adapters so they can record lens-boundary dataset timestamps
+            into ``ctx.datasf_timestamps`` (Story 5.3 T5 / AC-12).
 
     Returns a Polars DataFrame with the original routing columns plus:
     ``neighborhood_id``, ``neighborhood_name``, ``ej_community``,
@@ -186,7 +144,7 @@ def aggregate_to_lenses(
             pl.lit(None).cast(pl.Float64).alias("trips_per_hour_peak"),
         )
 
-    boundaries = _fetch_boundaries(config)
+    boundaries = _fetch_boundaries(config, ctx)
 
     # Convert to GeoDataFrame
     addr_pd = routing_result.to_pandas()

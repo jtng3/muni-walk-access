@@ -60,6 +60,7 @@ def _run_stratify(
     stops_df: pl.DataFrame,
     config: Config,
     time_window: str | None = None,
+    ctx: RunContext | None = None,
 ) -> tuple[
     pl.DataFrame,
     list[dict[str, object]],
@@ -75,6 +76,9 @@ def _run_stratify(
         stops_df: Stop frequency DataFrame.
         config: Pipeline configuration.
         time_window: If set, filter stops_df to this window before joining.
+        ctx: Run context for provenance (records lens-boundary dataset
+            timestamps into ``ctx.datasf_timestamps`` via
+            :class:`DataSFBoundarySource`).
 
     Returns (stratified, lens_flags_data, neighborhoods, city_wide,
     t_lens, t_grid).
@@ -83,7 +87,9 @@ def _run_stratify(
     tw_label = f" [{time_window}]" if time_window else ""
     logger.info("Stage stratify_lens%s: starting", tw_label)
     t0 = time.perf_counter()
-    stratified = aggregate_to_lenses(result, stops_df, config, time_window=time_window)
+    stratified = aggregate_to_lenses(
+        result, stops_df, config, time_window=time_window, ctx=ctx
+    )
     lens_flags_data = compute_lens_flags(stratified)
     t_lens = time.perf_counter() - t0
     logger.info("Stage stratify_lens%s: %.1fs", tw_label, t_lens)
@@ -371,7 +377,7 @@ def _run_pipeline(
         # --- Multi-window path ---
         # Stratify once with default window for the spatial join base
         stratified, _flags, neighborhoods, city_wide, t_lens, t_grid = _run_stratify(
-            result, summary_df, config, time_window=default_window
+            result, summary_df, config, time_window=default_window, ctx=ctx
         )
 
         # Per-window grid + hex: loop once per time window (aggregate + headway)
@@ -420,7 +426,7 @@ def _run_pipeline(
     else:
         # --- Legacy single-window path ---
         stratified, _flags, neighborhoods, city_wide, t_lens, t_grid = _run_stratify(
-            result, routing_stops, config
+            result, routing_stops, config, ctx=ctx
         )
         logger.info("Stage stratify_hex: starting")
         t0 = time.perf_counter()
