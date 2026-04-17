@@ -879,3 +879,47 @@ class TestBoundarySourceDispatch:
 
         with pytest.raises(KeyError, match="No BoundarySource"):
             get_boundary_source("does_not_exist")
+
+    def test_datasf_boundary_source_handles_crs_less_gdf(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression: CRS-less GeoJSON uses set_crs, not to_crs (5-4 safety net).
+
+        DataSF's SODA endpoint always ships WGS84 metadata so SF never exercises
+        this branch; Philly's PennEnviroScreen (Story 5-4 via
+        `GenericURLBoundarySource`) may ship CRS-less geometry. Testing here
+        pins the safe `set_crs` path and prevents a pyproj raise when the
+        shared pattern lands for the generic adapter.
+        """
+        from shapely.geometry import box
+
+        from muni_walk_access.config import LensConfig, load_config
+        from muni_walk_access.ingest.cache import CacheManager
+        from muni_walk_access.ingest.sources.datasf import DataSFBoundarySource
+        from muni_walk_access.run_context import RunContext
+
+        # Write a CRS-less geojson the adapter will read via fetch_geospatial.
+        crs_less_gdf = gpd.GeoDataFrame(
+            {"nhood": ["X"]}, geometry=[box(-122.5, 37.7, -122.4, 37.8)]
+        )
+        assert crs_less_gdf.crs is None
+        geojson_path = tmp_path / "crs-less.geojson"
+        crs_less_gdf.to_file(geojson_path, driver="GeoJSON")
+
+        # Stub fetch_geospatial to return our CRS-less path without HTTP.
+        import muni_walk_access.ingest.sources.datasf as _datasf_mod
+
+        monkeypatch.setattr(
+            _datasf_mod, "fetch_geospatial", lambda *a, **k: geojson_path
+        )
+
+        cfg: Config = load_config(_CONFIG_PATH).model_copy(update={})
+        ctx = RunContext.from_config(
+            run_id="test",
+            config=cfg,
+            cache=CacheManager(root=tmp_path, ttl_days=30),
+        )
+        lens = LensConfig(id="x", datasf_id="abcd-1234", label="X")
+        out = DataSFBoundarySource().fetch(lens, ctx)
+        assert out.crs is not None
+        assert out.crs.to_epsg() == 4326

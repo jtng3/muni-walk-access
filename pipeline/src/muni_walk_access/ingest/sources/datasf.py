@@ -425,20 +425,34 @@ class DataSFBoundarySource:
     def fetch(
         self, lens: LensConfig, ctx: RunContext | None = None
     ) -> gpd.GeoDataFrame:
-        """Fetch + CRS-normalize a DataSF lens boundary."""
-        config = ctx.config if ctx is not None else None
-        if config is None:
+        """Fetch + CRS-normalize a DataSF lens boundary.
+
+        Requires ``ctx`` (despite the Protocol's ``ctx: RunContext | None``
+        optional signature, kept for the Story 5.3 transition-state
+        pattern). DataSF adapters need ``ctx.config.ingest`` for cache
+        configuration and ``ctx`` for provenance timestamp recording via
+        :func:`_record_timestamp`.
+        """
+        if ctx is None or ctx.config is None:
             raise ValueError(
-                "DataSFBoundarySource.fetch requires ctx with a bound Config"
+                "DataSFBoundarySource.fetch requires ctx with a bound Config — "
+                "construct via `RunContext.from_config(...)` in __main__.py and "
+                "thread through `aggregate_to_lenses(ctx=ctx)`."
             )
         path = fetch_geospatial(
             lens.datasf_id,
-            config.ingest,
+            ctx.config.ingest,
             ctx=ctx,
             limit=_LENS_BOUNDARY_ROW_LIMIT,
         )
         gdf: gpd.GeoDataFrame = gpd.read_file(path)
-        if gdf.crs is None or gdf.crs.to_epsg() != 4326:
+        # CRS-less sources (e.g. Philly OPA exports via GenericURLBoundarySource
+        # in Story 5-4) require a declarative `set_crs` — feeding them into
+        # `to_crs` directly raises inside pyproj. DataSF's SODA GeoJSON endpoint
+        # always ships WGS84 metadata, so SF always hits the elif path.
+        if gdf.crs is None:
+            gdf = gdf.set_crs("EPSG:4326")
+        elif gdf.crs.to_epsg() != 4326:
             gdf = gdf.to_crs("EPSG:4326")
         return gdf
 
