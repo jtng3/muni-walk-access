@@ -14,11 +14,7 @@ export interface GridDefaults {
   readonly walking_idx: number;
 }
 
-export interface LensFlags {
-  readonly analysis_neighborhoods: boolean;
-  readonly ej_communities: boolean;
-  readonly equity_strategy: boolean;
-}
+export type LensFlags = Readonly<Record<string, boolean>>;
 
 export interface CityWide {
   readonly pct_within: readonly (readonly number[])[];
