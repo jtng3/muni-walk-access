@@ -41,3 +41,13 @@ def get_address_source(kind: str) -> type[AddressSource]:
             f"Known: {sorted(ADDRESS_SOURCES)}"
         )
     return ADDRESS_SOURCES[kind]
+
+
+# Import adapters here so the registry is populated on package import.
+# Order: `ADDRESS_SOURCES` must be defined above this line (each adapter's
+# module-level `ADDRESS_SOURCES["kind"] = ClassName` line references it).
+#
+# Note: do NOT `importlib.reload` this package — Python caches the submodule
+# import below, so a reload would clear ADDRESS_SOURCES without re-registering
+# adapters. Restart the process instead.
+from muni_walk_access.ingest.sources import datasf as _datasf  # noqa: E402, F401

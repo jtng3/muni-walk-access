@@ -159,7 +159,7 @@ class TestMainOrchestration:
                 return_value=(mock_net, "20260101"),
             ),
             patch(
-                "muni_walk_access.__main__.fetch_residential_addresses",
+                "muni_walk_access.ingest.sources.datasf.DataSFAddressSource.fetch",
                 return_value=mock_addresses,
             ),
             patch(
@@ -215,7 +215,7 @@ class TestMainOrchestration:
                 return_value=(mock_net, "20260101"),
             ) as m_net,
             patch(
-                "muni_walk_access.__main__.fetch_residential_addresses",
+                "muni_walk_access.ingest.sources.datasf.DataSFAddressSource.fetch",
                 return_value=mock_addresses,
             ) as m_addr,
             patch(
@@ -277,7 +277,7 @@ class TestMainOrchestration:
                 return_value=(MagicMock(), "20260101"),
             ),
             patch(
-                "muni_walk_access.__main__.fetch_residential_addresses",
+                "muni_walk_access.ingest.sources.datasf.DataSFAddressSource.fetch",
                 return_value=mock_addresses,
             ),
             patch(

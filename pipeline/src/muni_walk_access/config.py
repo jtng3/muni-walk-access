@@ -243,6 +243,16 @@ class DevConfig(BaseModel):
     sample_size: int | None = Field(None, gt=0)
 
 
+class AddressSourceConfig(BaseModel):
+    """Which `AddressSource` adapter provides the city's residential addresses.
+
+    Story 5.3: generalizes the previously hardcoded DataSF + EAS assumption
+    so Philly (5.4) can ship an OPA Carto adapter without core-module edits.
+    """
+
+    kind: Literal["datasf"] = "datasf"
+
+
 class Config(BaseModel):
     """Root pipeline configuration model."""
 
@@ -257,6 +267,7 @@ class Config(BaseModel):
     ingest: IngestConfig = IngestConfig()
     networks: NetworksConfig = NetworksConfig()
     routing: RoutingConfig = RoutingConfig()
+    address_source: AddressSourceConfig = AddressSourceConfig()
 
 
 def load_config(path: Path) -> Config:

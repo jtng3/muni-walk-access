@@ -29,11 +29,11 @@ from muni_walk_access.exceptions import IngestError, NetworkBuildError
 from muni_walk_access.ingest.cache import CacheManager
 from muni_walk_access.ingest.datasf import (
     fetch_datasf_metadata,
-    fetch_residential_addresses,
     get_datasf_timestamps,
     was_fallback_used,
 )
 from muni_walk_access.ingest.gtfs import fetch_gtfs, fetch_gtfs_v2
+from muni_walk_access.ingest.sources import get_address_source
 from muni_walk_access.network.build import build_network
 from muni_walk_access.route.nearest_stop import route_nearest_stops
 from muni_walk_access.run_context import RunContext
@@ -310,7 +310,8 @@ def _run_pipeline(
     logger.info("Stage network_build: %.1fs", t_network)
 
     t0 = time.perf_counter()
-    addresses = fetch_residential_addresses(config, ctx=ctx)
+    address_source = get_address_source(config.address_source.kind)()
+    addresses = address_source.fetch(ctx)
     t_addresses = time.perf_counter() - t0
     logger.info("Stage address_fetch: %.1fs", t_addresses)
 
