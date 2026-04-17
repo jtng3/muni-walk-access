@@ -309,25 +309,28 @@ def _compute_stop_frequencies(
     # Cast stop_id to str for consistency
     stop_trip_counts = stop_trip_counts.with_columns(pl.col("stop_id").cast(pl.Utf8))
 
-    # Join stop coordinates from stops.txt
+    # Join stop coordinates from stops.txt. strict=False turns parse failures
+    # (e.g. empty strings or "NULL" sentinels from dirty feeds) into nulls
+    # that the filter below drops, rather than raising at cast time.
     stops_coords = stops_df.select(
         [
             pl.col("stop_id").cast(pl.Utf8),
-            pl.col("stop_lat").cast(pl.Float64),
-            pl.col("stop_lon").cast(pl.Float64),
+            pl.col("stop_lat").cast(pl.Float64, strict=False),
+            pl.col("stop_lon").cast(pl.Float64, strict=False),
         ]
     )
     stop_trip_counts = stop_trip_counts.join(stops_coords, on="stop_id", how="left")
 
-    # Drop stops with null coordinates (stop_id in stop_times but not in stops.txt).
-    pre_join = len(stop_trip_counts)
+    # Drop stops with null coordinates — covers both "stop_id in stop_times
+    # but not in stops.txt" (join miss) and "coord failed to parse" (cast miss).
+    pre_coord_filter = len(stop_trip_counts)
     stop_trip_counts = stop_trip_counts.filter(
         pl.col("stop_lat").is_not_null() & pl.col("stop_lon").is_not_null()
     )
-    if len(stop_trip_counts) < pre_join:
+    if len(stop_trip_counts) < pre_coord_filter:
         logger.warning(
-            "Dropped %d stop(s) with no coordinates in stops.txt",
-            pre_join - len(stop_trip_counts),
+            "Dropped %d stop(s) with null or unparseable coordinates",
+            pre_coord_filter - len(stop_trip_counts),
         )
 
     return stop_trip_counts
@@ -455,12 +458,14 @@ def _compute_stop_frequencies_v2(
         pl.col("route_short_name").fill_null(pl.col("route_id"))
     )
 
-    # Stop coordinates
+    # Stop coordinates. strict=False turns parse failures (e.g. empty strings
+    # or "NULL" sentinels from dirty feeds) into nulls that the downstream
+    # filter drops, rather than raising at cast time.
     stops_coords = stops_df.select(
         [
             pl.col("stop_id").cast(pl.Utf8),
-            pl.col("stop_lat").cast(pl.Float64),
-            pl.col("stop_lon").cast(pl.Float64),
+            pl.col("stop_lat").cast(pl.Float64, strict=False),
+            pl.col("stop_lon").cast(pl.Float64, strict=False),
         ]
     )
 
@@ -486,10 +491,16 @@ def _compute_stop_frequencies_v2(
     detail = detail.with_columns(pl.col("stop_id").cast(pl.Utf8))
     detail = detail.join(stops_coords, on="stop_id", how="left")
 
-    # Drop stops with null coordinates
+    # Drop stops with null coordinates — covers both join-miss and cast-miss.
+    pre_coord_filter = len(detail)
     detail = detail.filter(
         pl.col("stop_lat").is_not_null() & pl.col("stop_lon").is_not_null()
     )
+    if len(detail) < pre_coord_filter:
+        logger.warning(
+            "Dropped %d stop-row(s) with null or unparseable coordinates",
+            pre_coord_filter - len(detail),
+        )
 
     detail = detail.select(
         [
