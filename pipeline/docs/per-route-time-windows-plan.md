@@ -2,7 +2,7 @@
 
 **Status:** Reviewed — consensus incorporated
 **Date:** 2026-04-15
-**Reviewed by:** John (PM), Sally (UX), Winston (Architect), Mary (Analyst), Senior Engineer
+**Reviewed:** cross-functional (product, UX, architecture, analysis) + engineering
 
 ---
 

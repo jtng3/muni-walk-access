@@ -33,7 +33,7 @@
 | Presidio Heights | 3,307 |
 | Glen Park | 3,731 |
 
-**Root cause of the bad claim**: the audit repeated a memory note (`project_missing_neighborhoods.md`) that described an earlier pipeline state, and confused `site/src/data/*.json` (gitignored local source, which Tang3 had overwritten with a `--sample 100` run) with `site/dist/data/*.json` (the actual last-build output). The memory note has been removed; a new learning (`learning_verify_against_current_state.md`) captures the rigor rule.
+**Root cause of the bad claim**: the audit repeated a stale internal note that described an earlier pipeline state, and confused `site/src/data/*.json` (gitignored local source, which had been overwritten with a `--sample 100` run) with `site/dist/data/*.json` (the actual last-build output). Verification rule going forward: always confirm against `site/dist/data/` and `config_snapshot.json` before making deployment-impact claims.
 
 **What the current parcel filter genuinely does**: some neighborhoods have low residential populations (Presidio, Treasure Island, Golden Gate Park) because they are mostly non-residential land. This is realistic, not a bug. The original memory-note observation may have reflected either an even earlier filter or a different analysis; either way, it does not describe current deployment state.
 
