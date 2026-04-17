@@ -34,7 +34,26 @@ _EJ_SCORE_THRESHOLD = 21
 def slugify_neighborhood(name: str) -> str:
     """Convert a neighbourhood name to a kebab-case slug.
 
-    This is the single source of truth for neighbourhood ID generation.
+    **CONTRACT — DO NOT "IMPROVE" THIS FUNCTION.**
+
+    This is the single source of truth for neighbourhood ID generation. The
+    ``id`` fields in both ``grid.json`` and ``neighborhoods.geojson`` originate
+    here: ``aggregate_to_lenses`` (below) stamps the slug onto every row as
+    ``neighborhood_id`` — which ``compute_grid`` then forwards into
+    ``NeighborhoodGrid.id`` — and ``write_neighborhoods_geojson`` calls this
+    function directly when writing feature IDs. The frontend joins those two
+    files on that ``id`` — any slug-rule change here silently breaks the join
+    and leaves the map rendering with missing or mis-coloured polygons.
+
+    If you need different slug rules for a future city adapter (Story 5.3+),
+    do NOT edit this function. Pass a per-city slugifier through the adapter
+    config so SF's rules stay pinned.
+
+    Rules (current):
+    - lowercase
+    - strip apostrophes
+    - collapse any run of non-[a-z0-9] characters to a single ``-``
+    - strip leading/trailing ``-``
     """
     s = name.lower()
     s = s.replace("'", "")  # strip apostrophes before slugifying
