@@ -296,6 +296,7 @@ def _run_pipeline(
     config: Config,
     config_path: Path,
     skip_validation: bool,
+    output_dir: Path,
 ) -> None:
     """Execute all pipeline stages with timing, memory, and caching."""
     run_id = datetime.now(timezone.utc).isoformat()
@@ -437,8 +438,7 @@ def _run_pipeline(
     if skip_validation:
         logger.info("Validation skipped (--skip-validation)")
 
-    # Emit stage
-    output_dir = Path(__file__).parent.parent.parent.parent
+    # Emit stage — output_dir is passed in from main() (--output-dir flag).
     # For v2, emit per-window hex files; for legacy, emit without time_window
     hex_grids_for_emit: dict[int, list[HexCell]] = {}
     if use_v2:
@@ -575,6 +575,17 @@ def main() -> None:
             "Use before ground-truth fixture is available."
         ),
     )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Root directory where emit writes site/src/data/* and "
+            "site/public/{data,downloads}/*. Default: the repo root "
+            "(three levels above pipeline/)."
+        ),
+    )
     args = parser.parse_args()
 
     if args.sample is not None and args.sample <= 0:
@@ -591,8 +602,16 @@ def main() -> None:
                 }
             )
 
+        output_dir = (
+            Path(args.output_dir).resolve()
+            if args.output_dir is not None
+            else Path(__file__).resolve().parent.parent.parent.parent
+        )
         _run_pipeline(
-            config, config_path=config_path, skip_validation=args.skip_validation
+            config,
+            config_path=config_path,
+            skip_validation=args.skip_validation,
+            output_dir=output_dir,
         )
 
     except ValidationError as exc:

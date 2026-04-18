@@ -29,11 +29,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Column in the Analysis Neighborhoods GeoJSON that holds the name.
-# TODO(Story 5.3 T8): lift into LensConfig.name_field (already exists; this
-# constant just keeps the byte-identical gate steady until the T8 sweep).
-_ANA_NAME_COL = "nhood"
-
 
 def slugify_neighborhood(name: str) -> str:
     """Convert a neighbourhood name to a kebab-case slug.
@@ -175,11 +170,12 @@ def aggregate_to_lenses(
 
     # --- Name lens: get polygon name per address ---
     ana_bnd = boundaries[name_lens.id]
-    # Rename to avoid collision with source 'nhood' column in the routing result
+    # Rename lens.name_field → neighborhood_name to avoid collision with any
+    # source column of the same name already present in the routing result
+    # (SF's EAS has a 'nhood' column on every address row).
+    name_col = name_lens.name_field
     result_col = "neighborhood_name"
-    ana_slim = ana_bnd[[_ANA_NAME_COL, "geometry"]].rename(
-        columns={_ANA_NAME_COL: result_col}
-    )
+    ana_slim = ana_bnd[[name_col, "geometry"]].rename(columns={name_col: result_col})
     ana_joined = gpd.sjoin(addr_gdf, ana_slim, how="left", predicate="within")
     ana_joined = ana_joined[~ana_joined.index.duplicated(keep="first")]
     neighbourhood_names = ana_joined[result_col]

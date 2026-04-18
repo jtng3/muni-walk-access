@@ -76,13 +76,16 @@ def route_nearest_stops(
     else:
         logger.info("Full mode: routing all %d addresses", len(addresses))
 
-    # --- Cast lat/lon to float (T5) ---
+    # --- Cast lat/lon to float (T5 + Story 5.3 T9 dirty-CSV hardening) ---
     # fetch_tabular returns all-String columns; cast only if needed to avoid
-    # double-casting already-numeric data.
+    # double-casting already-numeric data. Non-strict cast + null-filter
+    # protects against dirty EAS rows (empty strings, "NULL", "N/A") that
+    # SF's feed is clean on today but Philly's OPA export may not be —
+    # same shape as the E8 fix applied to GTFS stops.txt.
     if addresses["latitude"].dtype == pl.Utf8:
         addresses = addresses.with_columns(
-            pl.col("latitude").cast(pl.Float64),
-            pl.col("longitude").cast(pl.Float64),
+            pl.col("latitude").cast(pl.Float64, strict=False),
+            pl.col("longitude").cast(pl.Float64, strict=False),
         )
 
     # Drop rows with null lat/lon (malformed EAS data) to avoid silent bad routing.
@@ -96,12 +99,19 @@ def route_nearest_stops(
             pre_count - len(addresses),
         )
 
-    # Stop coordinates: fetch_gtfs returns typed floats, but cast defensively.
+    # Stop coordinates: fetch_gtfs returns typed floats, but cast defensively
+    # with strict=False so GTFS feeds with dirty stop_lat rows don't crash.
     if stops["stop_lat"].dtype == pl.Utf8:
+        pre_stop_count = len(stops)
         stops = stops.with_columns(
-            pl.col("stop_lat").cast(pl.Float64),
-            pl.col("stop_lon").cast(pl.Float64),
-        )
+            pl.col("stop_lat").cast(pl.Float64, strict=False),
+            pl.col("stop_lon").cast(pl.Float64, strict=False),
+        ).filter(pl.col("stop_lat").is_not_null() & pl.col("stop_lon").is_not_null())
+        if len(stops) < pre_stop_count:
+            logger.warning(
+                "Dropped %d stop(s) with null stop_lat/stop_lon after cast",
+                pre_stop_count - len(stops),
+            )
 
     # Build ordered stop arrays for POI registration.
     # The index order here determines the poi1 index returned by nearest_pois.

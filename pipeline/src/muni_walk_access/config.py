@@ -252,6 +252,21 @@ class DevConfig(BaseModel):
     sample_size: int | None = Field(None, gt=0)
 
 
+class EmitConfig(BaseModel):
+    """Emit-layer knobs — output-shape assertions, formatting guards.
+
+    ``hex_expected_cell_counts`` holds a per-H3-resolution "occupied cell"
+    count that the hex emitter sanity-checks at write time. If the actual
+    count deviates by more than 2× from the expected value, the emitter
+    logs a warning — guards against silent address-dataset regressions.
+
+    Leave as ``None`` for new cities (no baseline yet) so the assertion
+    simply skips. Populate after the first clean full-pipeline run.
+    """
+
+    hex_expected_cell_counts: dict[int, int] | None = None
+
+
 class AddressSourceConfig(BaseModel):
     """Which `AddressSource` adapter provides the city's residential addresses.
 
@@ -283,6 +298,7 @@ class Config(BaseModel):
     ingest: IngestConfig = IngestConfig()
     networks: NetworksConfig = NetworksConfig()
     routing: RoutingConfig = RoutingConfig()
+    emit: EmitConfig = EmitConfig()
     address_source: AddressSourceConfig = AddressSourceConfig()
 
 

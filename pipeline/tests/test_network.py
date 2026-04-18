@@ -59,17 +59,30 @@ class TestCacheManagerExtensions:
     def test_put_path_returns_expected_path(self, tmp_path: Path) -> None:
         """put_path returns the correct dated path and creates parent dir."""
         cache = CacheManager(tmp_path, ttl_days=30)
-        dest = cache.put_path("osm", "osm-sf-pedestrian", "graphml")
+        dest = cache.put_path(
+            "osm", "osm-san-francisco-california-usa-pedestrian", "graphml"
+        )
         today = date.today().strftime("%Y%m%d")
-        assert dest == tmp_path / "osm" / f"osm-sf-pedestrian-{today}.graphml"
+        assert (
+            dest
+            == tmp_path
+            / "osm"
+            / f"osm-san-francisco-california-usa-pedestrian-{today}.graphml"
+        )
         assert dest.parent.exists()
 
     def test_get_with_graphml_extension(self, tmp_path: Path) -> None:
         """get() finds .graphml files when extensions=('graphml',)."""
         cache = CacheManager(tmp_path, ttl_days=30)
-        dest = cache.put_path("osm", "osm-sf-pedestrian", "graphml")
+        dest = cache.put_path(
+            "osm", "osm-san-francisco-california-usa-pedestrian", "graphml"
+        )
         dest.write_bytes(b"dummy")
-        result = cache.get("osm", "osm-sf-pedestrian", extensions=("graphml",))
+        result = cache.get(
+            "osm",
+            "osm-san-francisco-california-usa-pedestrian",
+            extensions=("graphml",),
+        )
         assert result == dest
 
     def test_get_does_not_find_graphml_with_default_extensions(
@@ -77,9 +90,13 @@ class TestCacheManagerExtensions:
     ) -> None:
         """get() with default extensions does NOT find .graphml files."""
         cache = CacheManager(tmp_path, ttl_days=30)
-        dest = cache.put_path("osm", "osm-sf-pedestrian", "graphml")
+        dest = cache.put_path(
+            "osm", "osm-san-francisco-california-usa-pedestrian", "graphml"
+        )
         dest.write_bytes(b"dummy")
-        result = cache.get("osm", "osm-sf-pedestrian")  # default extensions
+        result = cache.get(
+            "osm", "osm-san-francisco-california-usa-pedestrian"
+        )  # default extensions
         assert result is None
 
     def test_get_any_with_h5_extension(self, tmp_path: Path) -> None:
@@ -125,7 +142,9 @@ class TestFetchOsmGraph:
         ctx = _make_ctx(cfg, tmp_path)
         cache = CacheManager(tmp_path, ttl_days=30)
         # Pre-populate cache with the fixture graphml
-        dest = cache.put_path("osm", "osm-sf-pedestrian", "graphml")
+        dest = cache.put_path(
+            "osm", "osm-san-francisco-california-usa-pedestrian", "graphml"
+        )
         import shutil
 
         shutil.copy(FIXTURE_GRAPHML, dest)
@@ -144,7 +163,10 @@ class TestFetchOsmGraph:
         osm_subdir = tmp_path / "osm"
         osm_subdir.mkdir(parents=True)
         old_date = (date.today() - timedelta(days=5)).strftime("%Y%m%d")
-        stale = osm_subdir / f"osm-sf-pedestrian-{old_date}.graphml"
+        stale = (
+            osm_subdir
+            / f"osm-san-francisco-california-usa-pedestrian-{old_date}.graphml"
+        )
         import shutil
 
         shutil.copy(FIXTURE_GRAPHML, stale)
@@ -166,7 +188,10 @@ class TestFetchOsmGraph:
         osm_subdir = tmp_path / "osm"
         osm_subdir.mkdir(parents=True)
         old_date = (date.today() - timedelta(days=5)).strftime("%Y%m%d")
-        stale = osm_subdir / f"osm-sf-pedestrian-{old_date}.graphml"
+        stale = (
+            osm_subdir
+            / f"osm-san-francisco-california-usa-pedestrian-{old_date}.graphml"
+        )
         import shutil
 
         shutil.copy(FIXTURE_GRAPHML, stale)
@@ -245,7 +270,7 @@ class TestBuildNetwork:
             osm_subdir.mkdir(parents=True, exist_ok=True)
             import shutil
 
-            cache_name = f"osm-sf-pedestrian-{today}.graphml"
+            cache_name = f"osm-san-francisco-california-usa-pedestrian-{today}.graphml"
             shutil.copy(FIXTURE_GRAPHML, osm_subdir / cache_name)
             net2, osm_date2 = build_network(cfg, ctx=ctx)
 

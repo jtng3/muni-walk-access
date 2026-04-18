@@ -15,17 +15,6 @@ from muni_walk_access.emit.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Expected *occupied* cell counts per H3 resolution (cells with ≥1 SF address).
-# Warning fires if actual count deviates by more than 2× from expected.
-# Update these after any significant address-dataset refresh.
-_EXPECTED_CELL_COUNTS: dict[int, int] = {
-    7: 29,
-    8: 161,
-    9: 896,
-    10: 5_245,
-    11: 28_709,
-}
-
 
 def write_grid_hex_json(
     hex_grids: dict[int, list[HexCell]],
@@ -85,16 +74,18 @@ def write_grid_hex_json(
         cell_count = len(cells)
         logger.info("Grid hex r%d%s: %d cells", res, suffix, cell_count)
 
-        expected = _EXPECTED_CELL_COUNTS.get(res)
-        if expected is not None and (
-            cell_count > expected * 2 or cell_count < expected // 2
-        ):
-            logger.warning(
-                "Hex r%d cell count %d deviates >2× from expected ~%d",
-                res,
-                cell_count,
-                expected,
-            )
+        expected_counts = config.emit.hex_expected_cell_counts
+        if expected_counts is not None:
+            expected = expected_counts.get(res)
+            if expected is not None and (
+                cell_count > expected * 2 or cell_count < expected // 2
+            ):
+                logger.warning(
+                    "Hex r%d cell count %d deviates >2× from expected ~%d",
+                    res,
+                    cell_count,
+                    expected,
+                )
 
         schema = HexGridSchema(
             version="2.0.0" if time_window else "1.0.0",

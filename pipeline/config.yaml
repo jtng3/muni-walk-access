@@ -62,3 +62,14 @@ ingest:
 networks:
   osm_place: "San Francisco, California, USA"
   osm_network_type: "walk"
+
+emit:
+  # Expected *occupied* cell counts per H3 resolution (cells with ≥1 SF address).
+  # Warning fires if actual count deviates by more than 2× from expected.
+  # Update these after any significant address-dataset refresh.
+  hex_expected_cell_counts:
+    7: 29
+    8: 161
+    9: 896
+    10: 5245
+    11: 28709
