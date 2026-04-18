@@ -128,21 +128,40 @@ def aggregate_to_lenses(
             into ``ctx.datasf_timestamps`` (Story 5.3 T5 / AC-12).
 
     Returns a Polars DataFrame with the original routing columns plus:
-    ``neighborhood_id``, ``neighborhood_name``, ``ej_community``,
-    ``equity_strategy``, ``trips_per_hour_peak``.
+    ``neighborhood_id``, ``neighborhood_name``, one boolean per
+    boundary-membership lens (column name = ``lens.source_column``),
+    ``trips_per_hour_peak``.
 
-    Addresses that fall outside all three boundaries are excluded with
-    a log INFO message.
+    Addresses that fall outside the name lens are excluded with a log
+    INFO message.
 
     """
+    # The "name lens" is the single lens with ``source_column is None`` —
+    # it contributes ``neighborhood_name`` (a polygon attribute) rather
+    # than a per-address boolean. Boundary-membership lenses all declare
+    # ``source_column`` and produce a boolean column of that name.
+    name_lens = next(
+        (lens_cfg for lens_cfg in config.lenses if lens_cfg.source_column is None),
+        None,
+    )
+    if name_lens is None:
+        raise ValueError(
+            "config.lenses must contain exactly one name lens "
+            "(source_column is None); none found"
+        )
+    boolean_lenses = [
+        lens_cfg for lens_cfg in config.lenses if lens_cfg.source_column is not None
+    ]
+
     if len(routing_result) == 0:
-        return routing_result.with_columns(
+        empty_cols: list[pl.Expr] = [
             pl.lit(None).cast(pl.Utf8).alias("neighborhood_id"),
             pl.lit(None).cast(pl.Utf8).alias("neighborhood_name"),
-            pl.lit(None).cast(pl.Boolean).alias("ej_community"),
-            pl.lit(None).cast(pl.Boolean).alias("equity_strategy"),
-            pl.lit(None).cast(pl.Float64).alias("trips_per_hour_peak"),
-        )
+        ]
+        for lens in boolean_lenses:
+            empty_cols.append(pl.lit(None).cast(pl.Boolean).alias(lens.source_column))
+        empty_cols.append(pl.lit(None).cast(pl.Float64).alias("trips_per_hour_peak"))
+        return routing_result.with_columns(*empty_cols)
 
     boundaries = _fetch_boundaries(config, ctx)
 
@@ -154,9 +173,9 @@ def aggregate_to_lenses(
         crs="EPSG:4326",
     )
 
-    # --- Analysis Neighbourhoods: get name per address ---
-    ana_bnd = boundaries["analysis_neighborhoods"]
-    # Rename to avoid collision with EAS 'nhood' column already in routing result
+    # --- Name lens: get polygon name per address ---
+    ana_bnd = boundaries[name_lens.id]
+    # Rename to avoid collision with source 'nhood' column in the routing result
     result_col = "neighborhood_name"
     ana_slim = ana_bnd[[_ANA_NAME_COL, "geometry"]].rename(
         columns={_ANA_NAME_COL: result_col}
@@ -165,19 +184,15 @@ def aggregate_to_lenses(
     ana_joined = ana_joined[~ana_joined.index.duplicated(keep="first")]
     neighbourhood_names = ana_joined[result_col]
 
-    # --- EJ Communities: boolean per address ---
-    ej_flags = _sjoin_boolean(addr_gdf, boundaries["ej_communities"])
-
-    # --- Equity Strategy: boolean per address ---
-    eq_flags = _sjoin_boolean(addr_gdf, boundaries["equity_strategy"])
-
     # Assemble result on the original pandas frame
     result_pd = addr_pd.copy()
     result_pd["neighborhood_name"] = neighbourhood_names.values
-    result_pd["ej_community"] = ej_flags
-    result_pd["equity_strategy"] = eq_flags
 
-    # Exclude addresses outside all boundaries (no neighbourhood match)
+    # --- Boundary-membership lenses: one boolean column per lens ---
+    for lens in boolean_lenses:
+        result_pd[lens.source_column] = _sjoin_boolean(addr_gdf, boundaries[lens.id])
+
+    # Exclude addresses outside the name lens (no neighbourhood match)
     outside_mask = result_pd["neighborhood_name"].isna()
     outside_count = int(outside_mask.sum())
     if outside_count > 0:
@@ -220,16 +235,16 @@ def aggregate_to_lenses(
     if "stop_id" in result_pd.columns:
         result_pd = result_pd.drop(columns=["stop_id"])
 
-    # Build final column list
+    # Build final column list. Order: original routing columns, then
+    # neighborhood_id + neighborhood_name, then one column per
+    # boundary-membership lens (in config order, matching how downstream
+    # readers iterate), then the stop-frequency fields.
     orig_cols = list(routing_result.columns)
-    new_cols = [
-        "neighborhood_id",
-        "neighborhood_name",
-        "ej_community",
-        "equity_strategy",
-        "trips_per_hour_peak",
-        "best_route_headway_min",
-    ]
+    new_cols: list[str] = ["neighborhood_id", "neighborhood_name"]
+    new_cols.extend(
+        lens.source_column for lens in boolean_lenses if lens.source_column is not None
+    )
+    new_cols.extend(["trips_per_hour_peak", "best_route_headway_min"])
     keep = [c for c in orig_cols + new_cols if c in result_pd.columns]
     return pl.from_pandas(result_pd[keep])
 

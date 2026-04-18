@@ -30,10 +30,14 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from muni_walk_access.config import DevConfig, load_config  # noqa: E402
-from muni_walk_access.ingest.datasf import fetch_residential_addresses  # noqa: E402
+from muni_walk_access.ingest.cache import CacheManager  # noqa: E402
 from muni_walk_access.ingest.gtfs import fetch_gtfs  # noqa: E402
+from muni_walk_access.ingest.sources.datasf import (  # noqa: E402
+    fetch_residential_addresses,
+)
 from muni_walk_access.network.build import build_network  # noqa: E402
 from muni_walk_access.route.nearest_stop import route_nearest_stops  # noqa: E402
+from muni_walk_access.run_context import RunContext  # noqa: E402
 
 _SEED = 42
 _SPOT_SAMPLE = 5
@@ -57,15 +61,19 @@ def main() -> None:
     """Run sample routing, pick 5 pairs, write spot-check YAML."""
     config = load_config(_CONFIG_PATH)
     config = config.model_copy(update={"dev": DevConfig(sample_size=1000)})
+    cache = CacheManager(
+        root=config.ingest.cache_dir, ttl_days=config.ingest.cache_ttl_days
+    )
+    ctx = RunContext.from_config(run_id="spot-check", config=config, cache=cache)
 
     print("Building pandana network (may use cache)…")
-    net, osm_date = build_network(config)
+    net, osm_date = build_network(config, ctx=ctx)
 
     print("Fetching residential addresses…")
-    addresses = fetch_residential_addresses(config)
+    addresses = fetch_residential_addresses(config, ctx=ctx)
 
     print("Fetching GTFS stops…")
-    stops_df, _ = fetch_gtfs(config)
+    stops_df, _, _ = fetch_gtfs(config, ctx=ctx)
 
     print("Running sample routing (1000 addresses, seed=42)…")
     result = route_nearest_stops(net, addresses, stops_df, config)

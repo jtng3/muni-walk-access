@@ -1,15 +1,10 @@
 """DataSF SODA API fetcher + `DataSFAddressSource` adapter (Story 5.3).
 
-Story 5.3 T3 moves the DataSF helpers from `ingest/datasf.py` to this
-module-level location so the generic `AddressSource` Protocol can be
-implemented at the bottom. The legacy `ingest/datasf.py` now aliases
-this module via `sys.modules` — see its docstring. T7 deletes the alias
-file entirely.
-
-Module globals (`_upstream_fallback`, `_datasf_timestamps`) live here
-rather than on the adapter class because the GTFS and OSM fetchers also
-write to them; keeping one global source of truth during the transition
-period avoids split-brain state.
+Story 5.3 T3 moved the DataSF helpers here from `ingest/datasf.py`. T7
+deleted the legacy shim file plus the `_upstream_fallback` /
+`_datasf_timestamps` module globals that briefly bridged the migration.
+Run-scoped state now lives on :class:`RunContext`; fetch helpers mutate
+`ctx.upstream_fallback` and `ctx.datasf_timestamps` directly.
 """
 
 from __future__ import annotations
@@ -48,53 +43,20 @@ _INTERIM_PARCEL_DATASET_ID = "wv5m-vpq2"
 _TBD_SENTINEL = "TBD_FROM_LUKE"
 _SPIKE_MEMO_PATH = "pipeline/docs/residential-filter-spike.md"
 
-_upstream_fallback: bool = False
-_datasf_timestamps: dict[str, str] = {}
-
-
-# Public surface — these are the names other modules and tests import via
-# the legacy `ingest.datasf` path (sys.modules aliased to this module). T7
-# trims this list as call sites migrate to ctx.* and the new factory.
+# Public surface — names other modules + tests import from this module.
 __all__ = [
     "DataSFAddressSource",
+    "DataSFBoundarySource",
     "SODA_BASE",
     "_EAS_DATASET_ID",
     "_INTERIM_PARCEL_DATASET_ID",
     "_TBD_SENTINEL",
-    "_datasf_timestamps",
     "_record_timestamp",
-    "_upstream_fallback",
     "fetch_datasf_metadata",
     "fetch_geospatial",
     "fetch_residential_addresses",
     "fetch_tabular",
-    "get_datasf_timestamps",
-    "set_upstream_fallback",
-    "was_fallback_used",
 ]
-
-
-def was_fallback_used() -> bool:
-    """Return True if any dataset used cached fallback due to upstream failure."""
-    return _upstream_fallback
-
-
-def set_upstream_fallback(ctx: RunContext | None = None) -> None:
-    """Mark that an upstream fallback was used (callable from other ingest modules).
-
-    Story 5.3 dual-write: when ``ctx`` is supplied, mirrors the flag onto
-    ``ctx.upstream_fallback``. The legacy module global remains the source
-    of truth until T7 deletes it; until then both must stay in sync.
-    """
-    global _upstream_fallback
-    _upstream_fallback = True
-    if ctx is not None:
-        ctx.upstream_fallback = True
-
-
-def get_datasf_timestamps() -> dict[str, str]:
-    """Return mapping of dataset_id -> yyyymmdd for provenance."""
-    return dict(_datasf_timestamps)
 
 
 def fetch_datasf_metadata(
@@ -131,17 +93,18 @@ def fetch_datasf_metadata(
 def _record_timestamp(
     dataset_id: str, path: Path, ctx: RunContext | None = None
 ) -> None:
-    """Extract and store the date suffix from a cache file path.
+    """Extract the yyyymmdd suffix from a cache filename onto ``ctx``.
 
-    Story 5.3 dual-write: when ``ctx`` is supplied, mirrors the timestamp
-    onto ``ctx.datasf_timestamps``. T7 collapses to ctx-only.
+    ``ctx=None`` is a silent no-op — used by unit tests that exercise the
+    fetch helpers without needing run-scoped provenance. Production callers
+    always pass ``ctx``.
     """
+    if ctx is None:
+        return
     stem = path.stem  # e.g. "i28k-bkz6-20260412"
     parts = stem.rsplit("-", 1)
     if len(parts) == 2:
-        _datasf_timestamps[dataset_id] = parts[1]
-        if ctx is not None:
-            ctx.datasf_timestamps[dataset_id] = parts[1]
+        ctx.datasf_timestamps[dataset_id] = parts[1]
 
 
 def fetch_tabular(
@@ -154,8 +117,13 @@ def fetch_tabular(
 
     Uses pagination ($limit/$offset) to bypass SODA's 1 000-row default cap.
     Caches result as Parquet. On HTTP failure, returns cached data if available
-    and sets the upstream-fallback flag (dual-written to ``ctx`` when supplied).
-    Raises IngestError if no cache exists and the upstream is unreachable.
+    and sets ``ctx.upstream_fallback = True``. Raises IngestError if no cache
+    exists and the upstream is unreachable.
+
+    ``ctx`` is optional at this layer so unit tests can exercise fetch/parse
+    without building a RunContext. Production callers always route through
+    :class:`DataSFAddressSource` / :func:`fetch_residential_addresses`, which
+    require ``ctx``.
     """
     cache = CacheManager(root=config.cache_dir, ttl_days=config.cache_ttl_days)
     fresh = cache.get(CACHE_SUBDIR_TABULAR, dataset_id)
@@ -211,7 +179,8 @@ def fetch_tabular(
                 exc,
                 stale,
             )
-            set_upstream_fallback(ctx)
+            if ctx is not None:
+                ctx.upstream_fallback = True
             _record_timestamp(dataset_id, stale, ctx)
             return pl.read_parquet(stale)
         raise IngestError(
@@ -270,7 +239,8 @@ def fetch_geospatial(
                 exc,
                 stale,
             )
-            set_upstream_fallback(ctx)
+            if ctx is not None:
+                ctx.upstream_fallback = True
             _record_timestamp(dataset_id, stale, ctx)
             return stale
         raise IngestError(
@@ -286,7 +256,8 @@ def fetch_geospatial(
 def fetch_residential_addresses(
     config: Config,
     client: httpx.Client | None = None,
-    ctx: RunContext | None = None,
+    *,
+    ctx: RunContext,
 ) -> pl.DataFrame:
     """Fetch EAS base addresses filtered to residential parcels only.
 
@@ -302,8 +273,8 @@ def fetch_residential_addresses(
         config: Root pipeline configuration; needs ``.ingest`` and
             ``.residential_filter``.
         client: Optional httpx.Client injected for testability; created if None.
-        ctx: Optional RunContext for dual-writing fallback flag and dataset
-            timestamps onto the run-scoped state. Story 5.3 transition aid.
+        ctx: RunContext for recording fallback flag + dataset timestamps
+            (kw-only, required).
 
     Returns:
         DataFrame of EAS addresses annotated with ``use_code``, filtered to

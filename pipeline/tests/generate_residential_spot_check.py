@@ -30,7 +30,11 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from muni_walk_access.config import load_config  # noqa: E402
-from muni_walk_access.ingest.datasf import fetch_residential_addresses  # noqa: E402
+from muni_walk_access.ingest.cache import CacheManager  # noqa: E402
+from muni_walk_access.ingest.sources.datasf import (  # noqa: E402
+    fetch_residential_addresses,
+)
+from muni_walk_access.run_context import RunContext  # noqa: E402
 
 _SEED = 42
 _SAMPLE_SIZE = 20
@@ -46,9 +50,13 @@ def _street_view_url(lat: float, lon: float) -> str:
 def main() -> None:
     """Fetch residential addresses, sample 20, write spot-check YAML."""
     config = load_config(_CONFIG_PATH)
+    cache = CacheManager(
+        root=config.ingest.cache_dir, ttl_days=config.ingest.cache_ttl_days
+    )
+    ctx = RunContext.from_config(run_id="spot-check", config=config, cache=cache)
 
     print("Fetching residential addresses from DataSF (slow on first run)…")
-    df = fetch_residential_addresses(config)
+    df = fetch_residential_addresses(config, ctx=ctx)
 
     if df.is_empty():
         print(

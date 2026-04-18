@@ -27,17 +27,13 @@ from muni_walk_access.emit.grid_json import write_grid_json
 from muni_walk_access.emit.schemas import CityWide, HexCell, NeighborhoodGrid
 from muni_walk_access.exceptions import IngestError, NetworkBuildError
 from muni_walk_access.ingest.cache import CacheManager
-from muni_walk_access.ingest.datasf import (
-    fetch_datasf_metadata,
-    get_datasf_timestamps,
-    was_fallback_used,
-)
 from muni_walk_access.ingest.gtfs import (
     compute_frequencies,
     fetch_gtfs,
     fetch_gtfs_feed,
 )
 from muni_walk_access.ingest.sources import get_address_source
+from muni_walk_access.ingest.sources.datasf import fetch_datasf_metadata
 from muni_walk_access.network.build import build_network
 from muni_walk_access.route.nearest_stop import route_nearest_stops
 from muni_walk_access.run_context import RunContext
@@ -435,8 +431,8 @@ def _run_pipeline(
         logger.info("Stage stratify_hex: %.1fs", t_hex)
 
     # Collect provenance after stratify (boundary datasets are fetched there)
-    datasf_timestamps = get_datasf_timestamps()
-    upstream_fallback = was_fallback_used()
+    datasf_timestamps = dict(ctx.datasf_timestamps)
+    upstream_fallback = ctx.upstream_fallback
 
     if skip_validation:
         logger.info("Validation skipped (--skip-validation)")

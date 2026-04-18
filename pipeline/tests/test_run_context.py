@@ -1,4 +1,4 @@
-"""Tests for RunContext + the dual-write contract (Story 5.3 T2)."""
+"""Tests for RunContext — ctx-only writes post-T7 (Story 5.3)."""
 
 from __future__ import annotations
 
@@ -6,10 +6,9 @@ from pathlib import Path
 
 import pytest
 
-import muni_walk_access.ingest.datasf as datasf_mod
 from muni_walk_access.config import load_config
 from muni_walk_access.ingest.cache import CacheManager
-from muni_walk_access.ingest.datasf import _record_timestamp, set_upstream_fallback
+from muni_walk_access.ingest.sources.datasf import _record_timestamp
 from muni_walk_access.run_context import RunContext, slugify_place
 
 
@@ -58,58 +57,33 @@ class TestRunContextFromConfig:
         assert ctx.datasf_timestamps == {}
 
 
-class TestDualWrite:
-    """set_upstream_fallback and _record_timestamp must dual-write to ctx.
+class TestCtxWrite:
+    """Ctx-only writes post-T7: fetch-adapter helpers mutate ctx, never globals.
 
-    Without these assertions, T7 could delete the legacy globals while ctx
-    silently received nothing — byte-identical pipeline output alone doesn't
-    prove the ctx path works.
+    T7 deleted the module-level ``_upstream_fallback`` / ``_datasf_timestamps``
+    globals and their legacy setters. The remaining ``_record_timestamp``
+    helper mutates ``ctx.datasf_timestamps`` directly. These tests guard the
+    ctx contract: adapters with ``ctx=None`` silently no-op; adapters with
+    ``ctx`` populate the run-scoped state.
     """
 
     @pytest.fixture
     def ctx(self, tmp_path: Path) -> RunContext:
-        """Build a RunContext bound to a temp cache for setter dual-write tests."""
+        """Build a RunContext bound to a temp cache for ctx-write tests."""
         config_path = Path(__file__).parent.parent / "config.yaml"
         cfg = load_config(config_path)
         cache = CacheManager(root=tmp_path, ttl_days=1)
         return RunContext.from_config(run_id="test", config=cfg, cache=cache)
 
-    def test_set_upstream_fallback_without_ctx_only_writes_global(self) -> None:
-        """Legacy call shape (no ctx) still works — backward compat."""
-        # Reset global state
-        datasf_mod._upstream_fallback = False
-        set_upstream_fallback()
-        assert datasf_mod._upstream_fallback is True
-        # Reset
-        datasf_mod._upstream_fallback = False
-
-    def test_set_upstream_fallback_with_ctx_dual_writes(self, ctx: RunContext) -> None:
-        """When ctx is supplied, both the global AND ctx must flip to True."""
-        datasf_mod._upstream_fallback = False
-        assert ctx.upstream_fallback is False
-
-        set_upstream_fallback(ctx)
-
-        assert datasf_mod._upstream_fallback is True
-        assert ctx.upstream_fallback is True
-
-        datasf_mod._upstream_fallback = False
-
-    def test_record_timestamp_without_ctx_only_writes_global(self) -> None:
-        """Legacy call shape still populates the module dict."""
-        datasf_mod._datasf_timestamps.clear()
+    def test_record_timestamp_without_ctx_is_noop(self) -> None:
+        """``ctx=None`` (default) is a silent no-op — no globals to write to."""
+        # Must not raise. Nothing to assert on: no global side-effect exists.
         _record_timestamp("abc", Path("abc-20260401.parquet"))
-        assert datasf_mod._datasf_timestamps["abc"] == "20260401"
-        datasf_mod._datasf_timestamps.clear()
 
-    def test_record_timestamp_with_ctx_dual_writes(self, ctx: RunContext) -> None:
-        """When ctx is supplied, both the module dict AND ctx must gain the key."""
-        datasf_mod._datasf_timestamps.clear()
+    def test_record_timestamp_with_ctx_populates_ctx(self, ctx: RunContext) -> None:
+        """Passing ctx writes the parsed yyyymmdd suffix into ctx.datasf_timestamps."""
         assert ctx.datasf_timestamps == {}
 
         _record_timestamp("abc", Path("abc-20260401.parquet"), ctx=ctx)
 
-        assert datasf_mod._datasf_timestamps["abc"] == "20260401"
         assert ctx.datasf_timestamps["abc"] == "20260401"
-
-        datasf_mod._datasf_timestamps.clear()

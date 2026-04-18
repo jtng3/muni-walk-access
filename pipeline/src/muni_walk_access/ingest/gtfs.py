@@ -20,7 +20,6 @@ from muni_walk_access.config import Config, TimeWindow
 from muni_walk_access.exceptions import IngestError
 from muni_walk_access.ingest.cache import CacheManager
 from muni_walk_access.ingest.contracts import GTFSFeed
-from muni_walk_access.ingest.datasf import set_upstream_fallback
 
 if TYPE_CHECKING:
     from muni_walk_access.run_context import RunContext
@@ -559,7 +558,8 @@ def _compute_stop_frequencies_v2(
 def fetch_gtfs(
     config: Config,
     client: httpx.Client | None = None,
-    ctx: RunContext | None = None,
+    *,
+    ctx: RunContext,
 ) -> tuple[pl.DataFrame, str, str]:
     """Download GTFS zip, parse AM-peak stop frequencies.
 
@@ -635,7 +635,7 @@ def fetch_gtfs(
             if cached_zip is not None and cached_zip.suffix == ".zip":
                 if not use_cache:
                     logger.warning("GTFS fetch failed; using cached zip %s", cached_zip)
-                    set_upstream_fallback(ctx)
+                    ctx.upstream_fallback = True
                 zip_bytes = cached_zip.read_bytes()
             else:
                 raise IngestError(
@@ -686,9 +686,9 @@ def fetch_gtfs(
 
 def fetch_gtfs_feed(
     config: Config,
-    ctx: RunContext | None = None,
     client: httpx.Client | None = None,
     *,
+    ctx: RunContext,
     dataset_id: str = GTFS_DATASET_ID,
     url: str = GTFS_URL,
     cache_subdir: str = CACHE_SUBDIR,
@@ -865,7 +865,7 @@ def _fetch_zip_with_cache_fallback(
         if cached_zip is not None and cached_zip.suffix == ".zip":
             if upstream_failed:
                 logger.warning("GTFS fetch failed; using cached zip %s", cached_zip)
-                set_upstream_fallback(ctx)
+                ctx.upstream_fallback = True
             zip_bytes = cached_zip.read_bytes()
         elif upstream_unchanged:
             # Server said 304 (we had a cached meta), but the cached zip is

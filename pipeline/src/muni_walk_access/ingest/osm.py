@@ -13,7 +13,6 @@ import osmnx
 from muni_walk_access.config import Config
 from muni_walk_access.exceptions import NetworkBuildError
 from muni_walk_access.ingest.cache import CacheManager
-from muni_walk_access.ingest.datasf import set_upstream_fallback
 
 if TYPE_CHECKING:
     from muni_walk_access.run_context import RunContext
@@ -50,7 +49,8 @@ def _date_from_cache_path(path: Path) -> str:
 def fetch_osm_graph(
     config: Config,
     cache: CacheManager | None = None,
-    ctx: RunContext | None = None,
+    *,
+    ctx: RunContext,
 ) -> tuple[nx.MultiDiGraph, str]:
     """Fetch the SF pedestrian network, cache as GraphML, return (graph, date).
 
@@ -92,7 +92,7 @@ def fetch_osm_graph(
             logger.warning(
                 "Overpass fetch failed (%s); using stale cache %s", exc, stale
             )
-            set_upstream_fallback(ctx)
+            ctx.upstream_fallback = True
             stale_graph: nx.MultiDiGraph = osmnx.load_graphml(stale)
             return stale_graph, _date_from_cache_path(stale)
         raise NetworkBuildError(

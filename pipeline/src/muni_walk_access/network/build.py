@@ -21,9 +21,7 @@ _PANDANA_SUBDIR = "pandana"
 _PANDANA_EXT: tuple[str, ...] = ("h5",)
 
 
-def build_network(
-    config: Config, ctx: RunContext | None = None
-) -> tuple[pandana.Network, str]:
+def build_network(config: Config, *, ctx: RunContext) -> tuple[pandana.Network, str]:
     """Build the SF pedestrian pandana Network, cache as HDF5, return (net, date).
 
     The pandana cache key embeds the OSM extract date so stale-fallback graphs

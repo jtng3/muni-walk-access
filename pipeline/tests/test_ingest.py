@@ -14,16 +14,16 @@ import httpx
 import polars as pl
 import pytest
 
-import muni_walk_access.ingest.datasf as datasf_mod
-from muni_walk_access.config import Config, IngestConfig
+import muni_walk_access.ingest.sources.datasf as datasf_mod
+from muni_walk_access.config import Config, IngestConfig, load_config
 from muni_walk_access.exceptions import IngestError
 from muni_walk_access.ingest.cache import CacheManager
-from muni_walk_access.ingest.datasf import (
+from muni_walk_access.ingest.gtfs import fetch_gtfs
+from muni_walk_access.ingest.sources.datasf import (
     fetch_geospatial,
     fetch_residential_addresses,
     fetch_tabular,
 )
-from muni_walk_access.ingest.gtfs import fetch_gtfs
 from muni_walk_access.run_context import RunContext
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sample_gtfs_minimal"
@@ -81,10 +81,18 @@ def _ingest_config(tmp_path: Path, ttl_days: int = 30) -> IngestConfig:
     return IngestConfig(cache_dir=tmp_path, cache_ttl_days=ttl_days)
 
 
-def _reset_fallback() -> None:
-    """Reset the module-level upstream_fallback flag between tests."""
-    datasf_mod._upstream_fallback = False
-    datasf_mod._datasf_timestamps.clear()
+def _make_ctx(tmp_path: Path) -> RunContext:
+    """Build a minimal RunContext bound to a temp cache for fetch-call tests.
+
+    Post-T7 there are no module globals; tests assert on ``ctx.upstream_fallback``
+    and ``ctx.datasf_timestamps`` directly. Tests that do not care about run
+    state simply drop the returned ctx (or omit the argument on ctx-optional
+    fetch helpers).
+    """
+    config_path = Path(__file__).parent.parent / "config.yaml"
+    cfg = load_config(config_path)
+    cache = CacheManager(root=tmp_path, ttl_days=1)
+    return RunContext.from_config(run_id="test", config=cfg, cache=cache)
 
 
 # ---------------------------------------------------------------------------
@@ -136,10 +144,6 @@ class TestCacheManager:
 class TestFetchTabular:
     """Tests for datasf.fetch_tabular."""
 
-    def setup_method(self) -> None:
-        """Reset module-level state before each test."""
-        _reset_fallback()
-
     def _client(self, handler: Any) -> httpx.Client:
         return httpx.Client(transport=httpx.MockTransport(handler))
 
@@ -188,8 +192,9 @@ class TestFetchTabular:
         assert len(df2) == 3
 
     def test_fallback_on_http_error_with_cache(self, tmp_path: Path) -> None:
-        """T9d: HTTP error + stale cache → returns stale data, sets fallback flag."""
+        """T9d: HTTP error + stale cache → returns stale data, sets ctx flag."""
         cfg = _ingest_config(tmp_path, ttl_days=1)
+        ctx = _make_ctx(tmp_path)
 
         # Write old cache manually
         subdir = tmp_path / "datasf"
@@ -202,19 +207,20 @@ class TestFetchTabular:
             return httpx.Response(500, content=b"server error")
 
         client = self._client(handler)
-        df = fetch_tabular("fail-dataset", cfg, client=client)
+        df = fetch_tabular("fail-dataset", cfg, client=client, ctx=ctx)
         assert list(df["stop_id"]) == ["S0", "S1"]
-        assert datasf_mod.was_fallback_used() is True
+        assert ctx.upstream_fallback is True
 
     def test_no_fallback_flag_on_success(self, tmp_path: Path) -> None:
-        """T9e2: successful fetch → was_fallback_used() is False."""
+        """T9e2: successful fetch → ctx.upstream_fallback stays False."""
         cfg = _ingest_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
 
         def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(200, content=_make_csv_bytes(2))
 
-        fetch_tabular("ok-dataset", cfg, client=self._client(handler))
-        assert datasf_mod.was_fallback_used() is False
+        fetch_tabular("ok-dataset", cfg, client=self._client(handler), ctx=ctx)
+        assert ctx.upstream_fallback is False
 
     def test_ingest_error_on_http_failure_no_cache(self, tmp_path: Path) -> None:
         """T9e: HTTP error + no cache → raises IngestError."""
@@ -288,10 +294,6 @@ class TestFetchTabular:
 class TestFetchGeospatial:
     """Tests for datasf.fetch_geospatial."""
 
-    def setup_method(self) -> None:
-        """Reset module-level state before each test."""
-        _reset_fallback()
-
     def _client(self, handler: Any) -> httpx.Client:
         return httpx.Client(transport=httpx.MockTransport(handler))
 
@@ -325,8 +327,9 @@ class TestFetchGeospatial:
         assert path.exists()
 
     def test_fallback_on_geo_failure(self, tmp_path: Path) -> None:
-        """HTTP failure with stale cache → returns stale path, sets fallback."""
+        """HTTP failure with stale cache → returns stale path, sets ctx fallback."""
         cfg = _ingest_config(tmp_path, ttl_days=1)
+        ctx = _make_ctx(tmp_path)
         subdir = tmp_path / "datasf"
         subdir.mkdir(parents=True, exist_ok=True)
         old_date = (date.today() - timedelta(days=5)).strftime("%Y%m%d")
@@ -336,9 +339,9 @@ class TestFetchGeospatial:
         def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(500, content=b"fail")
 
-        path = fetch_geospatial("geo-fail", cfg, client=self._client(handler))
+        path = fetch_geospatial("geo-fail", cfg, client=self._client(handler), ctx=ctx)
         assert path == stale_file
-        assert datasf_mod.was_fallback_used() is True
+        assert ctx.upstream_fallback is True
 
     def test_ingest_error_geo_no_cache(self, tmp_path: Path) -> None:
         """HTTP failure with no cache → raises IngestError."""
@@ -379,8 +382,11 @@ class TestFetchGtfs:
     def test_gtfs_produces_correct_columns(self, tmp_path: Path) -> None:
         """T9f: DataFrame has stop_id, trips_per_hour_peak, stop_lat, stop_lon."""
         config = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
         zip_bytes = _make_gtfs_zip()
-        df, sha256, _feed_date = fetch_gtfs(config, client=self._client(zip_bytes))
+        df, sha256, _feed_date = fetch_gtfs(
+            config, client=self._client(zip_bytes), ctx=ctx
+        )
         assert "stop_id" in df.columns
         assert "trips_per_hour_peak" in df.columns
         assert "stop_lat" in df.columns
@@ -391,16 +397,22 @@ class TestFetchGtfs:
         import hashlib
 
         config = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
         zip_bytes = _make_gtfs_zip()
-        _, sha256, _feed_date = fetch_gtfs(config, client=self._client(zip_bytes))
+        _, sha256, _feed_date = fetch_gtfs(
+            config, client=self._client(zip_bytes), ctx=ctx
+        )
         expected = hashlib.sha256(zip_bytes).hexdigest()
         assert sha256 == expected
 
     def test_peak_window_filters_stops(self, tmp_path: Path) -> None:
         """T9j: stops outside peak window (S004 in fixture) are excluded."""
         config = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
         zip_bytes = _make_gtfs_zip()
-        df, _sha, _feed_date = fetch_gtfs(config, client=self._client(zip_bytes))
+        df, _sha, _feed_date = fetch_gtfs(
+            config, client=self._client(zip_bytes), ctx=ctx
+        )
         stop_ids = df["stop_id"].to_list()
         # S004 is only served at 10:00+ — outside 07:00–09:00 peak
         assert "S004" not in stop_ids
@@ -411,8 +423,11 @@ class TestFetchGtfs:
     def test_trips_per_hour_correct(self, tmp_path: Path) -> None:
         """S001 has 8 trips in 2hr window → 4 trips/hr."""
         config = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
         zip_bytes = _make_gtfs_zip()
-        df, _sha, _feed_date = fetch_gtfs(config, client=self._client(zip_bytes))
+        df, _sha, _feed_date = fetch_gtfs(
+            config, client=self._client(zip_bytes), ctx=ctx
+        )
         s001 = df.filter(pl.col("stop_id") == "S001")
         assert len(s001) == 1
         assert abs(s001["trips_per_hour_peak"][0] - 4.0) < 0.01
@@ -420,13 +435,14 @@ class TestFetchGtfs:
     def test_gtfs_ingest_error_no_cache(self, tmp_path: Path) -> None:
         """All GTFS URLs fail + no cache → raises IngestError."""
         config = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
 
         def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(500, content=b"error")
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
         with pytest.raises(IngestError):
-            fetch_gtfs(config, client=client)
+            fetch_gtfs(config, client=client, ctx=ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -583,10 +599,6 @@ class TestCalendarCorrectness:
 class TestResidentialFilter:
     """Tests for datasf.fetch_residential_addresses — Story 1.6."""
 
-    def setup_method(self) -> None:
-        """Reset module-level state before each test."""
-        _reset_fallback()
-
     def _full_config(self, tmp_path: Path, parcel_id: str | None = None) -> Config:
         """Build a valid Config with tmp cache dir and optional parcel_id override."""
         from muni_walk_access.config import load_config
@@ -646,11 +658,12 @@ class TestResidentialFilter:
     def test_tbd_sentinel_uses_interim_dataset(self, tmp_path: Path) -> None:
         """T4a: TBD sentinel → fetch_tabular called with _INTERIM_PARCEL_DATASET_ID."""
         cfg = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
         call_log: list[str] = []
 
         mock = self._mock_fetch(self._eas_df(), self._parcel_df(), call_log)
         with patch.object(datasf_mod, "fetch_tabular", side_effect=mock):
-            fetch_residential_addresses(cfg)
+            fetch_residential_addresses(cfg, ctx=ctx)
 
         assert datasf_mod._INTERIM_PARCEL_DATASET_ID in call_log
         assert datasf_mod._TBD_SENTINEL not in call_log
@@ -659,6 +672,7 @@ class TestResidentialFilter:
         """T4b: real parcel_dataset_id → fetch_tabular called with that ID."""
         real_id = "abcd-efgh"
         cfg = self._full_config(tmp_path, parcel_id=real_id)
+        ctx = _make_ctx(tmp_path)
         call_log: list[str] = []
         parcel_df = pl.DataFrame({"parcel_number": ["0001/001"], "use_code": ["SRES"]})
 
@@ -667,7 +681,7 @@ class TestResidentialFilter:
             "fetch_tabular",
             side_effect=self._mock_fetch(self._eas_df(), parcel_df, call_log),
         ):
-            fetch_residential_addresses(cfg)
+            fetch_residential_addresses(cfg, ctx=ctx)
 
         assert real_id in call_log
         assert datasf_mod._INTERIM_PARCEL_DATASET_ID not in call_log
@@ -677,15 +691,16 @@ class TestResidentialFilter:
     ) -> None:
         """T4c: WARNING level log emitted when TBD sentinel is used."""
         cfg = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
 
         with patch.object(
             datasf_mod,
             "fetch_tabular",
             side_effect=self._mock_fetch(self._eas_df(), self._parcel_df()),
         ):
-            logger_name = "muni_walk_access.ingest.datasf"
+            logger_name = "muni_walk_access.ingest.sources.datasf"
             with caplog.at_level(logging.WARNING, logger=logger_name):
-                fetch_residential_addresses(cfg)
+                fetch_residential_addresses(cfg, ctx=ctx)
 
         warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert any(datasf_mod._TBD_SENTINEL in msg for msg in warnings)
@@ -693,13 +708,14 @@ class TestResidentialFilter:
     def test_use_code_filtering(self, tmp_path: Path) -> None:
         """T4d: only rows matching use_codes_residential are returned."""
         cfg = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
 
         with patch.object(
             datasf_mod,
             "fetch_tabular",
             side_effect=self._mock_fetch(self._eas_df(), self._parcel_df()),
         ):
-            result = fetch_residential_addresses(cfg)
+            result = fetch_residential_addresses(cfg, ctx=ctx)
 
         # SRES + MRES match config; COMM does not; 2023 dupe excluded by year filter
         assert set(result["use_code"].to_list()).issubset({"SRES", "MRES"})
@@ -708,13 +724,14 @@ class TestResidentialFilter:
     def test_returned_df_has_expected_columns(self, tmp_path: Path) -> None:
         """T4e: result has address, latitude, longitude, parcel_number, use_code."""
         cfg = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
 
         with patch.object(
             datasf_mod,
             "fetch_tabular",
             side_effect=self._mock_fetch(self._eas_df(), self._parcel_df()),
         ):
-            result = fetch_residential_addresses(cfg)
+            result = fetch_residential_addresses(cfg, ctx=ctx)
 
         for col in ("address", "latitude", "longitude", "parcel_number", "use_code"):
             assert col in result.columns, f"Expected column missing: {col}"
@@ -722,6 +739,7 @@ class TestResidentialFilter:
     def test_ingest_error_propagates(self, tmp_path: Path) -> None:
         """T4f: IngestError from parcel fetch_tabular propagates (not swallowed)."""
         cfg = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
 
         def failing_fetch(
             dataset_id: str,
@@ -737,7 +755,7 @@ class TestResidentialFilter:
 
         with patch.object(datasf_mod, "fetch_tabular", side_effect=failing_fetch):
             with pytest.raises(IngestError):
-                fetch_residential_addresses(cfg)
+                fetch_residential_addresses(cfg, ctx=ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -771,8 +789,9 @@ class TestFetchGtfsFeedAndComputeFrequencies:
         from muni_walk_access.ingest.gtfs import fetch_gtfs_feed
 
         config = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
         zip_bytes = _make_gtfs_v2_zip()
-        feed = fetch_gtfs_feed(config, client=self._client(zip_bytes))
+        feed = fetch_gtfs_feed(config, client=self._client(zip_bytes), ctx=ctx)
 
         assert isinstance(feed, GTFSFeed)
         assert feed.feed_sha256 == hashlib.sha256(zip_bytes).hexdigest()
@@ -792,8 +811,9 @@ class TestFetchGtfsFeedAndComputeFrequencies:
         from muni_walk_access.ingest.gtfs import compute_frequencies, fetch_gtfs_feed
 
         config = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
         zip_bytes = _make_gtfs_v2_zip()
-        feed = fetch_gtfs_feed(config, client=self._client(zip_bytes))
+        feed = fetch_gtfs_feed(config, client=self._client(zip_bytes), ctx=ctx)
         detail, summary = compute_frequencies(feed, config)
 
         expected_detail_cols = {
@@ -824,8 +844,9 @@ class TestFetchGtfsFeedAndComputeFrequencies:
         from muni_walk_access.ingest.gtfs import compute_frequencies, fetch_gtfs_feed
 
         config = self._full_config(tmp_path)
+        ctx = _make_ctx(tmp_path)
         zip_bytes = _make_gtfs_v2_zip()
-        feed = fetch_gtfs_feed(config, client=self._client(zip_bytes))
+        feed = fetch_gtfs_feed(config, client=self._client(zip_bytes), ctx=ctx)
 
         detail_a, summary_a = compute_frequencies(feed, config)
         detail_b, summary_b = compute_frequencies(feed, config)
@@ -855,7 +876,8 @@ class TestFetchGtfsFeedAndComputeFrequencies:
             )
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
-        fetch_gtfs_feed(config, client=client, dataset_id="septa-bus")
+        ctx = _make_ctx(tmp_path)
+        fetch_gtfs_feed(config, client=client, ctx=ctx, dataset_id="septa-bus")
 
         meta_path = tmp_path / CACHE_SUBDIR / "septa-bus-http.json"
         assert meta_path.exists(), (
@@ -878,8 +900,9 @@ class TestFetchGtfsFeedAndComputeFrequencies:
             return httpx.Response(200, content=b"not a real zip")
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
+        ctx = _make_ctx(tmp_path)
         with pytest.raises(IngestError) as excinfo:
-            fetch_gtfs_feed(config, client=client, dataset_id="septa-bus")
+            fetch_gtfs_feed(config, client=client, ctx=ctx, dataset_id="septa-bus")
         assert excinfo.value.dataset_id == "septa-bus"
 
     def test_304_without_cache_raises_distinct_error(self, tmp_path: Path) -> None:
@@ -902,8 +925,9 @@ class TestFetchGtfsFeedAndComputeFrequencies:
             return httpx.Response(304, content=b"")
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
+        ctx = _make_ctx(tmp_path)
         with pytest.raises(IngestError) as excinfo:
-            fetch_gtfs_feed(config, client=client)
+            fetch_gtfs_feed(config, client=client, ctx=ctx)
         assert "304 Not Modified" in str(excinfo.value)
 
     def test_malformed_upstream_does_not_poison_zip_cache(self, tmp_path: Path) -> None:
@@ -924,8 +948,9 @@ class TestFetchGtfsFeedAndComputeFrequencies:
             return httpx.Response(200, content=b"<html>error</html>")
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
+        ctx = _make_ctx(tmp_path)
         with pytest.raises(IngestError, match="not a valid zip"):
-            fetch_gtfs_feed(config, client=client)
+            fetch_gtfs_feed(config, client=client, ctx=ctx)
 
         # The critical assertion: no poisoned zip was written to cache.
         zip_files = list((tmp_path / CACHE_SUBDIR).glob("muni-gtfs-zip-*.zip"))

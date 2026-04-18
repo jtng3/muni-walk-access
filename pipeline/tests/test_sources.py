@@ -148,31 +148,3 @@ class TestDataSFAddressSourceShape:
             source = DataSFAddressSource()
             with pytest.raises(ValueError, match="no non-null values"):
                 source.fetch(ctx)
-
-
-class TestShim:
-    """ingest.datasf shim aliases the canonical sources.datasf module.
-
-    These tests guard against the binding-copy bug that `from ... import *`
-    would have introduced: the legacy 9 call sites (story T3e list) must
-    continue to see live state from the real module.
-    """
-
-    def test_shim_is_canonical_module(self) -> None:
-        """`ingest.datasf` and `ingest.sources.datasf` are the SAME module."""
-        import muni_walk_access.ingest.datasf as legacy
-        import muni_walk_access.ingest.sources.datasf as canonical
-
-        assert legacy is canonical
-
-    def test_shim_setter_propagates_to_canonical_globals(self) -> None:
-        """Calling set_upstream_fallback through the shim mutates real state."""
-        import muni_walk_access.ingest.datasf as legacy_mod
-        import muni_walk_access.ingest.sources.datasf as canonical_mod
-
-        canonical_mod._upstream_fallback = False
-        # Call via the shim — must update the canonical module's global,
-        # not a shim-local copy.
-        legacy_mod.set_upstream_fallback()
-        assert canonical_mod._upstream_fallback is True
-        canonical_mod._upstream_fallback = False
